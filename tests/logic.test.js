@@ -16,12 +16,13 @@ import {
   sanitizeState,
   DEFAULT_CELEBRATIONS,
   todayISO,
+  textToFinish,
   partnerStatus,
   stripForeignDrafts,
   describeNew,
   visibleFinishedIds,
 } from "../js/logic.js";
-import { encryptJson, decryptJson, sealForWire, unsealForTabby, generateJournalKey, bytesToB64, b64ToBytes, utf8ToBytes, bytesToUtf8 } from "../js/crypto.js";
+import { encryptJson, decryptJson, sealForWire, unsealForTabby, unsealRecord, generateJournalKey, bytesToB64, b64ToBytes, utf8ToBytes, bytesToUtf8 } from "../js/crypto.js";
 import { syncNow, cleanToken, explainSyncError, contentsPutBody, GITHUB_BRANCH, GITHUB_OWNER, GITHUB_REPO } from "../js/sync.js";
 
 test("eight weeks, one date and at least one rest each week", () => {
@@ -295,6 +296,28 @@ test("partner notices only finished items", () => {
   assert.ok(notes.some((n) => n.includes("question")));
   const hidden = describeNew(visibleFinishedIds(state, "brandon"), state, "brandon");
   assert.equal(hidden.length, 0);
+});
+
+test("mark finished keeps the words over a sealed draft", async () => {
+  assert.equal(textToFinish(undefined, "from the box"), "from the box");
+  assert.equal(textToFinish("memory", null), "memory");
+  const key = await generateJournalKey();
+  const sealed = await sealForWire(
+    { days: { w1d1: { tabby: { text: "words she wrote", finished: false, updatedAt: 4 } } }, journal: [], questions: [] },
+    key,
+    "tabby"
+  );
+  const opened = await unsealRecord(sealed.days.w1d1.tabby, key, false);
+  assert.equal(opened.text, "words she wrote");
+  const remote = normalizeState({
+    days: { w1d1: { tabby: { private: true, ct: "cipher", iv: "iv", finished: false, updatedAt: 4 } } },
+  });
+  const local = normalizeState({
+    days: { w1d1: { tabby: { text: "words she wrote", finished: true, finishedAt: 9, updatedAt: 9 } } },
+  });
+  const merged = mergeState(remote, local);
+  assert.equal(merged.days.w1d1.tabby.text, "words she wrote");
+  assert.equal(merged.days.w1d1.tabby.finished, true);
 });
 
 test("token cleanup and GitHub errors are specific", () => {

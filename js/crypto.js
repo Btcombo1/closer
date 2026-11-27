@@ -268,7 +268,7 @@ async function sealAffirmation(item, key) {
 }
 
 async function openSecret(record, key, parseJson) {
-  if (!record?.private || !record.ct || record.text || record.helping) return record;
+  if (!record?.ct || record.text || record.helping) return record;
   try {
     const raw = await decryptString(record, key);
     const data = parseJson ? JSON.parse(raw) : { text: raw };
@@ -277,6 +277,11 @@ async function openSecret(record, key, parseJson) {
   } catch {
     return { ...record, locked: true };
   }
+}
+
+export async function unsealRecord(record, key, parseJson = false) {
+  if (!record || !key) return record;
+  return openSecret(record, key, parseJson);
 }
 
 export async function unsealForAuthor(state, authorKey, author = "tabby") {

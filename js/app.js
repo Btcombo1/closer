@@ -1133,18 +1133,8 @@ function handle(action, btn) {
     scheduleSave();
     render();
   }
-  if (action === "finish") finishAnswer(day, btn.dataset.who);
-  if (action === "finish-part") {
-    const rec = dayRec(day);
-    const part = rec.parts?.[btn.dataset.part]?.tabby;
-    if (part?.text?.trim()) {
-      part.finished = true;
-      part.finishedAt = Date.now();
-      maybeComplete(day);
-      scheduleSave();
-      render();
-    }
-  }
+  if (action === "finish") runFinish(finishAnswer(day, btn.dataset.who));
+  if (action === "finish-part") runFinish(finishPart(day, btn.dataset.part));
   if (action === "starter") {
     const rec = dayRec(day);
     const who = btn.dataset.who;
@@ -1168,17 +1158,7 @@ function handle(action, btn) {
     rec.accepts[profile()][btn.dataset.rule] = btn.checked;
     scheduleSave();
   }
-  if (action === "finish-ex") {
-    const rec = dayRec(day);
-    const mine = rec.exercise?.[profile()];
-    if (mine?.helping?.trim() && mine?.criticism?.trim()) {
-      mine.finished = true;
-      mine.updatedAt = Date.now();
-      maybeComplete(day);
-      scheduleSave();
-      render();
-    }
-  }
+  if (action === "finish-ex") runFinish(finishExercise(day));
   if (action === "rate") {
     const rec = dayRec(day);
     rec.exercise.ratings = rec.exercise.ratings || {};
@@ -1211,10 +1191,10 @@ function handle(action, btn) {
     scheduleSave();
     render();
   }
-  if (action === "finish-journal") finishJournal(btn.dataset.id);
-  if (action === "finish-ack") finishAck(btn.dataset.id);
-  if (action === "finish-ask") finishAsk(btn.dataset.id);
-  if (action === "finish-reply") finishReply(btn.dataset.id, btn.dataset.mid);
+  if (action === "finish-journal") runFinish(finishJournal(btn.dataset.id));
+  if (action === "finish-ack") runFinish(finishAck(btn.dataset.id));
+  if (action === "finish-ask") runFinish(finishAsk(btn.dataset.id));
+  if (action === "finish-reply") runFinish(finishReply(btn.dataset.id, btn.dataset.mid));
   if (action === "save-setup") {
     rememberSetupFields();
     db.saveSettings(app.settings);
@@ -1321,17 +1301,7 @@ function handle(action, btn) {
   if (action === "sync") doSync();
   if (action === "copy-link") navigator.clipboard?.writeText(btn.dataset.link || pairLink());
   if (action === "add-more") addMore(btn.dataset.phase);
-  if (action === "finish-add") {
-    const seal = app.state.phaseSeals[btn.dataset.phase];
-    const add = seal?.additions?.find((item) => item.id === btn.dataset.id);
-    if (add?.text?.trim()) {
-      add.finished = true;
-      add.finishedAt = Date.now();
-      add.updatedAt = Date.now();
-      scheduleSave();
-      render();
-    }
-  }
+  if (action === "finish-add") runFinish(finishAddition(btn.dataset.phase, btn.dataset.id));
   if (action === "filter-set") {
     app.settingFilter = app.settingFilter === btn.dataset.id ? "" : btn.dataset.id;
     render();
@@ -1357,17 +1327,116 @@ function maybeComplete(dayId) {
   if (logic.isDayComplete(rec, def, app.state) && !rec.completedAt) rec.completedAt = logic.todayISO();
 }
 
-function finishAnswer(day, who) {
-  const rec = dayRec(day);
-  const answer = rec[who];
-  if (!answer?.text?.trim()) return;
-  answer.finished = true;
-  answer.finishedAt = Date.now();
-  answer.updatedAt = Date.now();
-  maybeComplete(day);
-  scheduleSave();
+function runFinish(promise) {
+  Promise.resolve(promise).catch((err) => {
+    app.banner = err?.message || "Mark finished did not complete. Your words are still here. Try again.";
+    render();
+  });
+}
+
+function boxValue(selector) {
+  const el = document.querySelector(selector);
+  return el ? el.value : null;
+}
+
+async function revealOwn(record, parseJson = false) {
+  if (!record?.ct || record.text || record.helping || !app.settings.authorKey) return record;
+  try {
+    return await crypto.unsealRecord(record, app.settings.authorKey, parseJson);
+  } catch (err) {
+    app.banner = "This draft is locked on this phone. The words in the box will be used if they are still there.";
+    return record;
+  }
+}
+
+function finishedCopy(who) {
+  const other = who === "tabby" ? "Brandon" : "Tabby";
+  return `Finished. ${other} can read this now.`;
+}
+
+async function saveAndSync() {
+  app.state.updatedAt = Date.now();
   app.sheet = null;
-  render();
+  try {
+    await db.saveState(app.state);
+  } catch (err) {
+    app.banner = "Could not store this on the phone. Your words are still in the box. Try Mark finished again.";
+    render();
+    return;
+  }
+  clearTimeout(app.syncTimer);
+  if (app.settings.token && app.settings.passphrase) await doSync();
+  else render();
+}
+
+async function finishAnswer(day, who) {
+  const rec = dayRec(day);
+  let answer = await revealOwn(rec[who], false);
+  const text = logic.textToFinish(answer?.text, boxValue(`textarea[data-save="answer"][data-day="${day}"][data-who="${who}"]`));
+  if (!text) {
+    app.banner = "There's nothing to finish yet. Write a few words in the box, then tap Mark finished.";
+    render();
+    return;
+  }
+  rec[who] = { text, finished: true, finishedAt: Date.now(), updatedAt: Date.now() };
+  maybeComplete(day);
+  app.banner = finishedCopy(who);
+  await saveAndSync();
+}
+
+async function finishPart(day, partId) {
+  const rec = dayRec(day);
+  rec.parts = rec.parts || {};
+  rec.parts[partId] = rec.parts[partId] || {};
+  let answer = await revealOwn(rec.parts[partId].tabby, false);
+  const text = logic.textToFinish(answer?.text, boxValue(`textarea[data-save="part"][data-day="${day}"][data-part="${partId}"]`));
+  if (!text) {
+    app.banner = "There's nothing to finish yet. Write a few words in the box, then tap Mark finished.";
+    render();
+    return;
+  }
+  rec.parts[partId].tabby = { text, finished: true, finishedAt: Date.now(), updatedAt: Date.now() };
+  maybeComplete(day);
+  app.banner = finishedCopy("tabby");
+  await saveAndSync();
+}
+
+async function finishExercise(day) {
+  const rec = dayRec(day);
+  rec.exercise = rec.exercise || {};
+  const who = profile();
+  let side = await revealOwn(rec.exercise[who], true);
+  const helping = logic.textToFinish(side?.helping, boxValue(`textarea[data-save="ex"][data-day="${day}"][data-field="helping"]`));
+  const criticism = logic.textToFinish(side?.criticism, boxValue(`textarea[data-save="ex"][data-day="${day}"][data-field="criticism"]`));
+  if (!helping || !criticism) {
+    app.banner = "Write both versions, the helping one and the criticism one, then tap Mark finished.";
+    render();
+    return;
+  }
+  rec.exercise[who] = { helping, criticism, finished: true, finishedAt: Date.now(), updatedAt: Date.now() };
+  maybeComplete(day);
+  app.banner = "Finished. You can both see these versions now.";
+  await saveAndSync();
+}
+
+async function finishAddition(phase, id) {
+  const seal = app.state.phaseSeals[phase];
+  const add = seal?.additions?.find((item) => item.id === id);
+  if (!add) {
+    app.banner = "That addition is not on this phone. Try again.";
+    render();
+    return;
+  }
+  const opened = await revealOwn(add, true);
+  const text = logic.textToFinish(opened?.text, null);
+  if (!text) {
+    app.banner = "There's nothing to finish yet. Write a few words, then tap Mark finished.";
+    render();
+    return;
+  }
+  Object.assign(add, { text, finished: true, finishedAt: Date.now(), updatedAt: Date.now(), private: false, ct: undefined, iv: undefined });
+  app.banner = finishedCopy(add.by || profile());
+  await saveAndSync();
 }
 
 function markPresent(id, title) {
@@ -1415,50 +1484,101 @@ function ensureReplyDraft(qid, mid) {
   return msg;
 }
 
-function finishJournal(id) {
+async function finishJournal(id) {
   const entry = (app.state.journal || []).find((item) => item.id === id) || (app.state.journal || []).find((item) => (item.by || "tabby") === profile() && !item.finished);
-  if (!entry?.text?.trim()) return;
-  entry.finished = true;
-  entry.finishedAt = Date.now();
-  entry.updatedAt = Date.now();
-  entry.visibility = entry.share ? "shared" : "private";
-  scheduleSave();
-  render();
+  if (!entry) {
+    app.banner = "There's nothing to finish yet. Write a few words, then tap Mark finished.";
+    render();
+    return;
+  }
+  const opened = await revealOwn(entry, true);
+  const text = logic.textToFinish(opened?.text, boxValue('textarea[data-save="journal-live"]'));
+  if (!text) {
+    app.banner = "There's nothing to finish yet. Write a few words, then tap Mark finished.";
+    render();
+    return;
+  }
+  const share = document.querySelector('input[data-save="journal-share"]')?.checked ?? !!entry.share;
+  Object.assign(entry, {
+    text,
+    share,
+    finished: true,
+    finishedAt: Date.now(),
+    updatedAt: Date.now(),
+    visibility: share ? "shared" : "private",
+    private: false,
+    ct: undefined,
+    iv: undefined,
+  });
+  app.banner = share ? "Finished. Brandon can read this now." : "Finished. This one stays private.";
+  await saveAndSync();
 }
 
-function finishAck(id) {
+async function finishAck(id) {
   const entry = app.state.journal.find((item) => item.id === id);
-  if (!entry?.ack?.text?.trim()) return;
-  entry.ack.finished = true;
-  entry.ack.finishedAt = Date.now();
-  entry.ack.updatedAt = Date.now();
+  if (!entry) {
+    app.banner = "That journal entry is not on this phone.";
+    render();
+    return;
+  }
+  entry.ack = await revealOwn(entry.ack, true);
+  const text = logic.textToFinish(entry.ack?.text, boxValue(`textarea[data-save="journal-ack"][data-id="${id}"]`));
+  if (!text) {
+    app.banner = "Write the acknowledgment, then tap Mark finished.";
+    render();
+    return;
+  }
+  entry.ack = { text, finished: true, finishedAt: Date.now(), updatedAt: Date.now(), by: "brandon" };
   entry.updatedAt = Date.now();
-  scheduleSave();
-  render();
+  app.banner = "Finished. Tabby can read this now.";
+  await saveAndSync();
 }
 
-function finishAsk(id) {
+async function finishAsk(id) {
   const q = (app.state.questions || []).find((item) => item.id === id) || (app.state.questions || []).find((item) => !item.finished && (item.author || "tabby") === "tabby");
-  if (!q?.text?.trim()) return;
-  q.finished = true;
-  q.finishedAt = Date.now();
-  q.updatedAt = Date.now();
-  q.status = "waiting";
-  scheduleSave();
-  render();
+  if (!q) {
+    app.banner = "There's nothing to finish yet. Write the question, then tap Mark finished.";
+    render();
+    return;
+  }
+  const opened = await revealOwn(q, true);
+  const text = logic.textToFinish(opened?.text, boxValue('textarea[data-save="ask-live"]'));
+  if (!text) {
+    app.banner = "There's nothing to finish yet. Write the question, then tap Mark finished.";
+    render();
+    return;
+  }
+  const about = document.querySelector('input[data-save="ask-incident"]')?.checked ?? !!q.aboutIncident;
+  Object.assign(q, { text, aboutIncident: about, finished: true, finishedAt: Date.now(), updatedAt: Date.now(), status: "waiting", private: false, ct: undefined, iv: undefined });
+  app.banner = "Finished. Brandon can read this question now.";
+  await saveAndSync();
 }
 
-function finishReply(qid, mid) {
+async function finishReply(qid, mid) {
   const q = app.state.questions.find((item) => item.id === qid);
-  const msg = q?.thread?.find((item) => item.id === mid) || q?.thread?.find((item) => item.author === profile() && !item.finished);
-  if (!q || !msg?.text?.trim()) return;
-  msg.finished = true;
-  msg.finishedAt = Date.now();
-  msg.updatedAt = Date.now();
-  if (msg.role === "answer") q.status = "answered";
+  if (!q) {
+    app.banner = "That question is not on this phone.";
+    render();
+    return;
+  }
+  q.thread = q.thread || [];
+  let msg = q.thread.find((item) => item.id === mid) || q.thread.find((item) => item.author === profile() && !item.finished);
+  if (!msg) msg = ensureReplyDraft(qid, mid);
+  msg = await revealOwn(msg, true);
+  const text = logic.textToFinish(msg?.text, boxValue(`textarea[data-save="reply-live"][data-id="${qid}"]`));
+  if (!text) {
+    app.banner = "There's nothing to finish yet. Write the reply, then tap Mark finished.";
+    render();
+    return;
+  }
+  const idx = q.thread.findIndex((item) => item.id === msg.id);
+  const published = { ...msg, text, finished: true, finishedAt: Date.now(), updatedAt: Date.now(), private: false, ct: undefined, iv: undefined };
+  if (idx >= 0) q.thread[idx] = published;
+  else q.thread.push(published);
+  if (published.role === "answer") q.status = "answered";
   q.updatedAt = Date.now();
-  scheduleSave();
-  render();
+  app.banner = finishedCopy(profile());
+  await saveAndSync();
 }
 
 function planDate(btn) {
@@ -1646,8 +1766,15 @@ async function testAndSync() {
   await doSync();
 }
 
-async function doSync(opts = {}) {
-  if (app.syncing) return;
+let syncTail = Promise.resolve();
+
+function doSync(opts = {}) {
+  const job = syncTail.then(() => performSync(opts), () => performSync(opts));
+  syncTail = job.then(() => undefined, () => undefined);
+  return job;
+}
+
+async function performSync(opts = {}) {
   app.settings.token = sync.cleanToken(app.settings.token);
   if (!app.settings.token || !app.settings.passphrase) {
     app.settings.lastSyncNote = "On this phone only";
@@ -1715,20 +1842,25 @@ async function doSync(opts = {}) {
         },
       },
     });
-    let next = await crypto.unsealForAuthor(logic.normalizeState(result.state), app.settings.authorKey, profile());
-    next = logic.stripForeignDrafts(next, profile());
+    let incoming = await crypto.unsealForAuthor(logic.normalizeState(result.state), app.settings.authorKey, profile());
+    incoming = logic.stripForeignDrafts(incoming, profile());
     if (!app.seenReady) {
-      app.seenFinished = logic.visibleFinishedIds(next, profile());
+      app.seenFinished = logic.visibleFinishedIds(incoming, profile());
       app.seenReady = true;
     } else {
-      const notes = logic.describeNew(before, next, profile());
-      app.seenFinished = logic.visibleFinishedIds(next, profile());
-      if (notes[0]) {
+      const notes = logic.describeNew(before, incoming, profile());
+      app.seenFinished = logic.visibleFinishedIds(app.state, profile()).concat(logic.visibleFinishedIds(incoming, profile()));
+      if (notes[0] && !String(app.banner || "").startsWith("Finished")) {
         app.banner = notes[0];
         maybeNotify("Your turn", notes[0]);
       }
     }
-    app.state = next;
+    const liveFinished = logic.visibleFinishedIds(app.state, "archive");
+    const remoteFinished = logic.visibleFinishedIds(incoming, "archive");
+    const merged = logic.stripForeignDrafts(logic.mergeState(incoming, app.state), profile());
+    const ahead = !opts.resynced && liveFinished.some((id) => !remoteFinished.includes(id));
+    app.state = merged;
+    opts.followUp = ahead;
     await db.saveState(app.state);
     app.settings.lastSyncAt = Date.now();
     const clock = new Date(app.settings.lastSyncAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -1743,9 +1875,10 @@ async function doSync(opts = {}) {
   if (opts.quiet && typing) {
     const live = document.querySelector("[data-sync-note]");
     if (live) live.textContent = syncLabel();
-    return;
+  } else {
+    render();
   }
-  render();
+  if (opts.followUp) return performSync({ quiet: true, resynced: true });
 }
 
 function applySetupLink(raw) {

@@ -412,6 +412,11 @@ export function currentIndex(state, days) {
   return days.length;
 }
 
+export function textToFinish(memoryText, domText) {
+  if (domText != null) return String(domText).trim();
+  return String(memoryText || "").trim();
+}
+
 export function answerView(answer, viewer, author) {
   if (!answer) return { state: "empty" };
   const mine = viewer === author;
