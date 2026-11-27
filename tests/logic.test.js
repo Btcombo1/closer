@@ -320,6 +320,49 @@ test("mark finished keeps the words over a sealed draft", async () => {
   assert.equal(merged.days.w1d1.tabby.finished, true);
 });
 
+test("a newer local rule tap is not erased by an older sync", () => {
+  const local = normalizeState({
+    days: {
+      w1d1: {
+        accepts: {
+          tabby: {
+            finish: { on: true, updatedAt: 50 },
+            pause: { on: true, updatedAt: 40 },
+          },
+        },
+      },
+    },
+  });
+  const remote = normalizeState({
+    days: {
+      w1d1: {
+        accepts: {
+          tabby: {
+            finish: { on: false, updatedAt: 10 },
+            pause: { on: false, updatedAt: 80 },
+            score: { on: true, updatedAt: 30 },
+          },
+          brandon: { finish: { on: true, updatedAt: 20 } },
+        },
+        ack: { brandon: { at: 5 } },
+      },
+    },
+  });
+  const merged = mergeState(remote, local);
+  const tabby = merged.days.w1d1.accepts.tabby;
+  assert.equal(tabby.finish.on, true);
+  assert.equal(tabby.pause.on, false);
+  assert.equal(tabby.score.on, true);
+  assert.equal(merged.days.w1d1.accepts.brandon.finish.on, true);
+  assert.equal(merged.days.w1d1.ack.brandon.at, 5);
+  const raced = mergeState(
+    { days: { w1d1: { accepts: { tabby: { finish: { on: true, updatedAt: 10 } } } } } },
+    { days: { w1d1: { accepts: { tabby: { finish: { on: true, updatedAt: 10 }, pause: { on: true, updatedAt: 99 } } } } } }
+  );
+  assert.equal(raced.days.w1d1.accepts.tabby.pause.on, true);
+  assert.equal(raced.days.w1d1.accepts.tabby.finish.on, true);
+});
+
 test("token cleanup and GitHub errors are specific", () => {
   assert.equal(cleanToken("  Bearer github_pat_abc\n"), "github_pat_abc");
   assert.equal(GITHUB_OWNER, "Btcombo1");

@@ -198,15 +198,126 @@ function unionById(listA = [], listB = [], mergeItem) {
   return [...map.values()];
 }
 
+function normRule(value) {
+  if (value == null) return null;
+  if (typeof value === "boolean") return { on: value, updatedAt: value ? 1 : 0 };
+  if (typeof value === "object") return { on: !!value.on, updatedAt: value.updatedAt || 0 };
+  return null;
+}
+
+export function ruleOn(value) {
+  return !!normRule(value)?.on;
+}
+
+function mergeRulePerson(a = {}, b = {}) {
+  const out = {};
+  for (const id of new Set([...Object.keys(a || {}), ...Object.keys(b || {})])) {
+    const left = normRule(a?.[id]);
+    const right = normRule(b?.[id]);
+    if (!left && !right) continue;
+    if (!left) out[id] = right;
+    else if (!right) out[id] = left;
+    else out[id] = (right.updatedAt || 0) >= (left.updatedAt || 0) ? right : left;
+  }
+  return out;
+}
+
+function mergeAccepts(a, b) {
+  if (!a && !b) return undefined;
+  const out = {};
+  for (const who of new Set([...Object.keys(a || {}), ...Object.keys(b || {})])) {
+    out[who] = mergeRulePerson(a?.[who], b?.[who]);
+  }
+  return out;
+}
+
+function ackTime(value) {
+  if (!value) return 0;
+  if (typeof value === "number") return value;
+  return value.at || value.updatedAt || 0;
+}
+
+export function ackOn(value) {
+  return ackTime(value) > 0;
+}
+
+function mergeAck(a = {}, b = {}) {
+  const out = {};
+  for (const who of ["tabby", "brandon"]) {
+    const at = Math.max(ackTime(a?.[who]), ackTime(b?.[who]));
+    if (at) out[who] = { at };
+  }
+  return out;
+}
+
+function mergeRating(a, b) {
+  if (!a) return b || null;
+  if (!b) return a || null;
+  const out = { updatedAt: Math.max(a.updatedAt || 0, b.updatedAt || 0) };
+  for (const field of ["helping", "criticism", "note"]) {
+    const leftAt = a[`${field}At`] || (a[field] ? a.updatedAt || 0 : 0);
+    const rightAt = b[`${field}At`] || (b[field] ? b.updatedAt || 0 : 0);
+    const pick = rightAt >= leftAt ? b : a;
+    const pickedAt = rightAt >= leftAt ? rightAt : leftAt;
+    if (pick[field] != null) out[field] = pick[field];
+    if (pickedAt) out[`${field}At`] = pickedAt;
+  }
+  return out;
+}
+
+function mergeWorkNight(a = {}, b = {}) {
+  const nights = {};
+  const touched = {};
+  for (let i = 0; i < 7; i++) {
+    const at = a.workTouched?.[i] || a.workTouched?.[String(i)] || 0;
+    const bt = b.workTouched?.[i] || b.workTouched?.[String(i)] || 0;
+    const aOn = !!(a.workNights?.[i] ?? a.workNights?.[String(i)]);
+    const bOn = !!(b.workNights?.[i] ?? b.workNights?.[String(i)]);
+    if (bt > at) nights[i] = bOn;
+    else if (at > bt) nights[i] = aOn;
+    else nights[i] = aOn || bOn;
+    touched[i] = Math.max(at, bt);
+  }
+  const base = (b.updatedAt || 0) >= (a.updatedAt || 0) ? { ...a, ...b } : { ...b, ...a };
+  base.workNights = nights;
+  base.workTouched = touched;
+  return base;
+}
+
+function listEntry(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "string") return { value, updatedAt: 1 };
+  if (typeof value === "object" && "value" in value) return { value: value.value, updatedAt: value.updatedAt || 0 };
+  return null;
+}
+
+function mergeLists(a = {}, b = {}) {
+  const out = {};
+  for (const id of new Set([...Object.keys(a || {}), ...Object.keys(b || {})])) {
+    out[id] = {};
+    for (const who of ["tabby", "brandon"]) {
+      const left = listEntry(a?.[id]?.[who]);
+      const right = listEntry(b?.[id]?.[who]);
+      if (!left && !right) continue;
+      if (!left) out[id][who] = right;
+      else if (!right) out[id][who] = left;
+      else out[id][who] = (right.updatedAt || 0) >= (left.updatedAt || 0) ? right : left;
+    }
+  }
+  return out;
+}
+
 function mergeDay(a = {}, b = {}) {
   const pause = mergePause(a, b);
   const out = { ...a, ...b, ...pause };
   out.tabby = mergeAnswer(a.tabby, b.tabby);
   out.brandon = mergeAnswer(a.brandon, b.brandon);
-  out.ack = {
-    tabby: a.ack?.tabby || b.ack?.tabby || null,
-    brandon: a.ack?.brandon || b.ack?.brandon || null,
-  };
+  const accepts = mergeAccepts(a.accepts, b.accepts);
+  if (accepts && Object.keys(accepts).length) out.accepts = accepts;
+  else delete out.accepts;
+  const ack = mergeAck(a.ack, b.ack);
+  if (ack && Object.keys(ack).length) out.ack = ack;
+  else delete out.ack;
   if (a.completedAt || b.completedAt) {
     const dates = [a.completedAt, b.completedAt].filter(Boolean).sort();
     out.completedAt = dates[0];
@@ -239,7 +350,7 @@ function mergeExercise(a, b) {
   const out = { tabby: null, brandon: null, ratings: { tabby: null, brandon: null } };
   for (const who of ["tabby", "brandon"]) {
     out[who] = mergeAnswer(a?.[who], b?.[who]);
-    out.ratings[who] = newer(a?.ratings?.[who], b?.ratings?.[who]);
+    out.ratings[who] = mergeRating(a?.ratings?.[who], b?.ratings?.[who]);
   }
   return out;
 }
@@ -297,10 +408,7 @@ export function mergeState(local, remote) {
     }).filter((j) => !j.removed),
     affirmations: unionById(a.affirmations, b.affirmations, (x, y) => newer(x, y)),
     closure: mergeClosure(a.closure, b.closure),
-    schedule: newer(
-      { ...a.schedule, updatedAt: a.schedule.updatedAt || 0 },
-      { ...b.schedule, updatedAt: b.schedule.updatedAt || 0 }
-    ),
+    schedule: mergeWorkNight(a.schedule, b.schedule),
     datePlans,
     customIdeas: unionById(a.customIdeas, b.customIdeas, (x, y) => newer(x, y)),
     photos: unionById(a.photos, b.photos, (x, y) => {
@@ -311,7 +419,7 @@ export function mergeState(local, remote) {
     celebrations,
     presence,
     justUs: {
-      lists: { ...a.justUs.lists, ...b.justUs.lists },
+      lists: mergeLists(a.justUs.lists, b.justUs.lists),
       notes: mergeJustNotes(a.justUs.notes, b.justUs.notes),
       checkins: unionById(a.justUs.checkins, b.justUs.checkins, (x, y) => newer(x, y)),
       ideas: unionById(a.justUs.ideas, b.justUs.ideas, (x, y) => newer(x, y)),
@@ -356,11 +464,11 @@ export function isDayComplete(record, def, state = {}) {
   if (!def) return false;
   const rec = record || {};
   if (rec.paused) return false;
-  if (def.kind === "break") return !!(rec.ack?.tabby && rec.ack?.brandon);
+  if (def.kind === "break") return ackOn(rec.ack?.tabby) && ackOn(rec.ack?.brandon);
   if (def.kind === "agreements") {
     const rules = def.ruleIds || [];
     const bothAccepted = ["tabby", "brandon"].every((who) =>
-      rules.every((id) => rec.accepts?.[who]?.[id])
+      rules.every((id) => ruleOn(rec.accepts?.[who]?.[id]))
     );
     return bothAccepted && textDone(rec.tabby) && textDone(rec.brandon);
   }
@@ -568,10 +676,10 @@ export function turnState(def, record, viewer, state = {}) {
   if (isDayComplete(rec, def, state)) return { code: "done", label: "This day is kept" };
   if (rec.paused) return { code: "paused", label: "Paused, with no penalty" };
   if (def.kind === "break") {
-    const mine = !!rec.ack?.[viewer];
+    const mine = ackOn(rec.ack?.[viewer]);
     const other = viewer === "tabby" ? "brandon" : "tabby";
     if (!mine) return { code: "your-turn", label: "Your turn" };
-    if (!rec.ack?.[other]) {
+    if (!ackOn(rec.ack?.[other])) {
       const name = other === "tabby" ? "Tabby" : "Brandon";
       return { code: "waiting", label: `Waiting for ${name}` };
     }
@@ -639,9 +747,9 @@ function cap(who) {
 
 function agreementTurn(def, rec, viewer) {
   const rules = def.ruleIds || [];
-  const mine = rules.every((id) => rec.accepts?.[viewer]?.[id]) && textDone(rec[viewer]);
+  const mine = rules.every((id) => ruleOn(rec.accepts?.[viewer]?.[id])) && textDone(rec[viewer]);
   const other = viewer === "tabby" ? "brandon" : "tabby";
-  const theirs = rules.every((id) => rec.accepts?.[other]?.[id]) && textDone(rec[other]);
+  const theirs = rules.every((id) => ruleOn(rec.accepts?.[other]?.[id])) && textDone(rec[other]);
   if (!mine) return { code: "your-turn", label: "Your turn" };
   if (!theirs) return { code: "waiting", label: `Waiting for ${cap(other)}` };
   return { code: "done", label: "This day is kept" };

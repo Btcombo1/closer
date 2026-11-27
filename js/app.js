@@ -17,6 +17,7 @@ const app = {
   justOpen: false,
   photoUrls: {},
   saveTimer: null,
+  editSeq: 0,
 };
 
 const $ = (html) => html;
@@ -75,6 +76,10 @@ function scheduleSave() {
   app.syncTimer = setTimeout(() => {
     if (app.settings.token && app.settings.passphrase) doSync({ quiet: true });
   }, 3500);
+}
+
+function markEdit() {
+  app.editSeq = (app.editSeq || 0) + 1;
 }
 
 function profile() {
@@ -354,6 +359,7 @@ function workView(def, rec, turn) {
       ${def.prompt ? `<p class="lede">${esc(def.prompt)}</p>` : ""}
       ${def.why ? `<p class="quiet"><strong>Why this question. </strong>${esc(def.why)}</p>` : ""}
       ${kindBody(def, rec)}
+      ${sealOffer(def, rec)}
       <p class="quiet small">If this gets heated, pause and come back. Your words stay saved.</p>
       <button class="text-btn" type="button" data-action="pause" data-day="${def.id}">I need a pause</button>
     </div>
@@ -467,7 +473,7 @@ function partsBody(def, rec) {
 }
 
 function breakBody(def, rec) {
-  const mine = rec.ack?.[profile()];
+  const mine = logic.ackOn(rec.ack?.[profile()]);
   return `<p class="lede">${esc(def.breakNote)}</p>
     ${mine ? `<p class="pill sage">You took this rest</p>` : `<button class="primary" type="button" data-action="ack" data-day="${def.id}">I’m taking this rest</button>`}
     <p class="quiet">${rec.ack?.tabby && rec.ack?.brandon ? "You both rested." : "The other person can mark this whenever. There is no clock."}</p>`;
@@ -475,10 +481,30 @@ function breakBody(def, rec) {
 
 function agreeBody(def, rec) {
   const rules = GROUND_RULES.map((rule) => {
-    const on = !!rec.accepts?.[profile()]?.[rule.id];
-    return `<label class="check"><input type="checkbox" data-action="rule" data-day="${def.id}" data-rule="${rule.id}" ${on ? "checked" : ""}> <span>${esc(rule.text)}</span></label>`;
+    const on = logic.ruleOn(rec.accepts?.[profile()]?.[rule.id]);
+    return `<label class="check" data-action="rule" data-day="${def.id}" data-rule="${rule.id}"><input type="checkbox" data-rule="${rule.id}" ${on ? "checked" : ""}> <span>${esc(rule.text)}</span></label>`;
   }).join("");
-  return `<div class="stack">${rules}</div><p class="quiet">Add anything you need, or write that these are enough.</p>${bothAnswers(def, rec)}`;
+  return `<div class="stack">${rules}</div><p class="quiet">Add anything you need, or write that these are enough. A check stays checked.</p>${bothAnswers(def, rec)}`;
+}
+
+function sealOffer(def, rec) {
+  if (!def.sealsPhase || profile() !== "tabby" || app.state.phaseSeals?.[def.sealsPhase]?.sealedAt) return "";
+  if (!tabbyReadyToSeal(def, rec)) return "";
+  return `<button class="primary full" type="button" data-action="seal" data-phase="${def.sealsPhase}" data-day="${def.id}">I’ve said everything on this for now</button>`;
+}
+
+function tabbyReadyToSeal(def, rec) {
+  if (def.kind === "exercise") {
+    const rated = rec.exercise?.ratings?.tabby;
+    return !!rec.exercise?.tabby?.finished && !!rated?.helping && !!rated?.criticism;
+  }
+  if (def.kind === "close") return !!app.state.closure?.tabbyClosed;
+  if (def.kind === "ritual") return !!(String(app.state.closure?.said || "").trim() && String(app.state.closure?.released || "").trim());
+  if (def.parts?.length) return def.parts.every((part) => logic.textDone(rec.parts?.[part.id]?.tabby));
+  if (def.kind === "agreements") {
+    return (def.ruleIds || []).every((id) => logic.ruleOn(rec.accepts?.tabby?.[id])) && logic.textDone(rec.tabby);
+  }
+  return logic.textDone(rec.tabby);
 }
 
 function exerciseBody(def, rec) {
@@ -923,7 +949,8 @@ function viewJust() {
   }
   const ideas = justIdeas(app.state.justUs?.ideas).map((idea) => `<article class="card"><h2>${esc(idea.title)}</h2><p>${esc(idea.summary)}</p></article>`).join("");
   const list = JUST_LIST.map((item) => {
-    const mine = app.state.justUs?.lists?.[item.id]?.[profile()] || "";
+    const raw = app.state.justUs?.lists?.[item.id]?.[profile()];
+    const mine = typeof raw === "string" ? raw : raw?.value || "";
     return `<div class="card"><p>${esc(item.label)}</p><div class="chips">${["yes", "no", "maybe"]
       .map((v) => `<button type="button" class="chip" data-action="ynm" data-id="${item.id}" data-value="${v}">${mine === v ? "✓ " : ""}${v}</button>`)
       .join("")}</div></div>`;
@@ -1146,23 +1173,35 @@ function handle(action, btn) {
   if (action === "ack") {
     const rec = dayRec(day);
     rec.ack = rec.ack || {};
-    rec.ack[profile()] = Date.now();
+    rec.ack[profile()] = { at: Date.now() };
+    markEdit();
     maybeComplete(day);
     scheduleSave();
     render();
   }
   if (action === "rule") {
+    const input = btn.matches?.("input") ? btn : btn.querySelector("input[type=checkbox]");
+    const on = input ? input.checked : true;
     const rec = dayRec(day);
     rec.accepts = rec.accepts || {};
     rec.accepts[profile()] = rec.accepts[profile()] || {};
-    rec.accepts[profile()][btn.dataset.rule] = btn.checked;
+    rec.accepts[profile()][btn.dataset.rule] = { on, updatedAt: Date.now() };
+    markEdit();
+    maybeComplete(day);
     scheduleSave();
   }
   if (action === "finish-ex") runFinish(finishExercise(day));
   if (action === "rate") {
     const rec = dayRec(day);
     rec.exercise.ratings = rec.exercise.ratings || {};
-    rec.exercise.ratings[profile()] = { ...(rec.exercise.ratings[profile()] || {}), [btn.dataset.field]: btn.dataset.value, updatedAt: Date.now() };
+    const now = Date.now();
+    rec.exercise.ratings[profile()] = {
+      ...(rec.exercise.ratings[profile()] || {}),
+      [btn.dataset.field]: btn.dataset.value,
+      [`${btn.dataset.field}At`]: now,
+      updatedAt: now,
+    };
+    markEdit();
     maybeComplete(day);
     scheduleSave();
     render();
@@ -1273,13 +1312,18 @@ function handle(action, btn) {
   }
   if (action === "ynm") {
     app.state.justUs.lists[btn.dataset.id] = app.state.justUs.lists[btn.dataset.id] || {};
-    app.state.justUs.lists[btn.dataset.id][profile()] = btn.dataset.value;
+    app.state.justUs.lists[btn.dataset.id][profile()] = { value: btn.dataset.value, updatedAt: Date.now() };
+    markEdit();
     scheduleSave();
     render();
   }
   if (action === "work-night") {
+    const now = Date.now();
     app.state.schedule.workNights[btn.dataset.dow] = btn.checked;
-    app.state.schedule.updatedAt = Date.now();
+    app.state.schedule.workTouched = app.state.schedule.workTouched || {};
+    app.state.schedule.workTouched[btn.dataset.dow] = now;
+    app.state.schedule.updatedAt = now;
+    markEdit();
     scheduleSave();
   }
   if (action === "save-shift") {
@@ -1307,6 +1351,7 @@ function handle(action, btn) {
     render();
   }
   if (action === "seal") {
+    app.sheet = null;
     app.state.phaseSeals[btn.dataset.phase] = { sealedAt: Date.now(), additions: app.state.phaseSeals[btn.dataset.phase]?.additions || [] };
     maybeComplete(day);
     scheduleSave();
@@ -1318,11 +1363,8 @@ function maybeComplete(dayId) {
   const def = DAYS.find((d) => d.id === dayId);
   if (!def) return;
   const rec = dayRec(dayId);
-  if (def.sealsPhase && profile() === "tabby" && !app.state.phaseSeals[def.sealsPhase]?.sealedAt) {
-    const ready = logic.turnState(def, rec, "tabby", { ...app.state, phaseSeals: { ...app.state.phaseSeals, [def.sealsPhase]: { sealedAt: 1 } } });
-    if (ready.code === "your-turn" || ready.code === "done") {
-      app.sheet = `<div class="sheet"><div class="panel"><h2>I’ve said everything on this for now</h2><p>You can add more later. It will not restart the chapter.</p><button class="primary full" type="button" data-action="seal" data-phase="${def.sealsPhase}" data-day="${dayId}">Yes, that’s everything for now</button><button class="ghost full" type="button" data-action="close-sheet">Not yet</button></div></div>`;
-    }
+  if (def.sealsPhase && profile() === "tabby" && !app.state.phaseSeals[def.sealsPhase]?.sealedAt && tabbyReadyToSeal(def, rec)) {
+    app.sheet = `<div class="sheet"><div class="panel"><h2>I’ve said everything on this for now</h2><p>You can add more later. It will not restart the chapter.</p><button class="primary full" type="button" data-action="seal" data-phase="${def.sealsPhase}" data-day="${dayId}">Yes, that’s everything for now</button><button class="ghost full" type="button" data-action="close-sheet">Not yet</button></div></div>`;
   }
   if (logic.isDayComplete(rec, def, app.state) && !rec.completedAt) rec.completedAt = logic.todayISO();
 }
@@ -1441,7 +1483,9 @@ async function finishAddition(phase, id) {
 
 function markPresent(id, title) {
   const today = logic.todayISO();
-  app.state.presence[today] = { id, title, at: Date.now(), by: profile(), updatedAt: Date.now() };
+  const stamped = Date.now();
+  app.state.presence[today] = { id, title, at: stamped, by: profile(), updatedAt: stamped };
+  markEdit();
   scheduleSave();
   render();
 }
@@ -1783,6 +1827,7 @@ async function performSync(opts = {}) {
     return;
   }
   app.syncing = true;
+  const seqAtStart = app.editSeq || 0;
   app.settings.lastSyncNote = "Syncing…";
   const note = document.querySelector("[data-sync-note]");
   if (note) note.textContent = "Syncing…";
@@ -1858,7 +1903,7 @@ async function performSync(opts = {}) {
     const liveFinished = logic.visibleFinishedIds(app.state, "archive");
     const remoteFinished = logic.visibleFinishedIds(incoming, "archive");
     const merged = logic.stripForeignDrafts(logic.mergeState(incoming, app.state), profile());
-    const ahead = !opts.resynced && liveFinished.some((id) => !remoteFinished.includes(id));
+    const ahead = !opts.resynced && (liveFinished.some((id) => !remoteFinished.includes(id)) || (app.editSeq || 0) !== seqAtStart);
     app.state = merged;
     opts.followUp = ahead;
     await db.saveState(app.state);
@@ -1871,8 +1916,10 @@ async function performSync(opts = {}) {
   }
   app.syncing = false;
   db.saveSettings(app.settings);
-  const typing = document.activeElement && ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
-  if (opts.quiet && typing) {
+  const active = document.activeElement;
+  const typing = active && (active.tagName === "TEXTAREA" || (active.tagName === "INPUT" && active.type !== "checkbox"));
+  const checking = active && active.tagName === "INPUT" && active.type === "checkbox";
+  if (opts.quiet && (typing || checking)) {
     const live = document.querySelector("[data-sync-note]");
     if (live) live.textContent = syncLabel();
   } else {
