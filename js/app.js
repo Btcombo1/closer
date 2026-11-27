@@ -94,6 +94,21 @@ async function render() {
   root.className = "app" + (onboard || setup || rest || app.route === "rest" ? " solo" : "");
   root.innerHTML = onboard ? viewOnboard() : setup ? viewSetup() : shell(await body());
   document.getElementById("splash")?.classList.add("hide");
+  if (app.focusSyncKey) {
+    const field = document.getElementById("sync-key") || document.getElementById("setup-token");
+    if (field) {
+      app.focusSyncKey = false;
+      field.scrollIntoView({ block: "center" });
+      field.focus();
+    }
+  }
+}
+
+function openSyncKey() {
+  app.focusSyncKey = true;
+  const inSetup = profile() && !app.settings.setupDone && !app.settings.skipSync;
+  if (inSetup || (location.hash || "") === "#/settings") render();
+  else go("#/settings");
 }
 
 function shell(inner) {
@@ -114,7 +129,7 @@ function syncIsError(note = app.settings.lastSyncNote || "") {
 
 function syncStatusBlock() {
   const note = syncLabel();
-  return `<p class="${syncIsError(note) ? "sync-error" : "quiet"}" data-sync-note>${esc(note)}</p>`;
+  return `<div class="sync-result"><p class="${syncIsError(note) ? "sync-error" : "quiet"}" data-sync-note>${esc(note)}</p><button class="text-btn" type="button" data-action="open-sync-key">Change key</button></div>`;
 }
 
 function topbar() {
@@ -135,7 +150,7 @@ function partnerCard(def, rec) {
   const when = app.settings.lastSyncAt
     ? new Date(app.settings.lastSyncAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : "not yet";
-  return `<article class="card status-card"><p class="kicker">Partner</p><h2>${esc(status.label)}</h2><p>${esc(status.detail)}</p><p class="quiet small">Last synced ${esc(when)}</p>${syncStatusBlock()}<button class="ghost" type="button" data-action="sync">Sync now</button></article>`;
+  return `<article class="card status-card"><p class="kicker">Partner</p><h2>${esc(status.label)}</h2><p>${esc(status.detail)}</p><p class="quiet small">Last synced ${esc(when)}</p>${syncStatusBlock()}<button class="ghost" type="button" data-action="sync">Sync now</button><button class="primary full" type="button" data-action="open-sync-key">Change key</button></article>`;
 }
 
 function viewSetup() {
@@ -143,8 +158,8 @@ function viewSetup() {
   if (who === "brandon") {
     return `<div class="view"><p class="kicker">One-time setup</p><h1>Connect the two phones.</h1>
       <p class="lede">You do not need to be in the same room. This phone keeps the token and the passphrase. Tabby opens one link, once.</p>
-      <div class="card"><p class="kicker">1 · Token</p><p class="quiet">On GitHub, make a fine-grained token for the closer-data repo only, with Contents set to read and write. Paste it here.</p>
-        <input id="setup-token" data-save="setup-token" type="password" autocomplete="off" placeholder="github_pat_…" value="${esc(app.settings.token || "")}"></div>
+      <div class="card" id="sync-key-card"><p class="kicker">1 · Sync key</p><p class="quiet">On GitHub, make a fine-grained token for the closer-data repo only, with Contents set to read and write. Paste it here. You can paste a new one later in Settings.</p>
+        <label>Sync key<input id="setup-token" data-save="setup-token" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_…" value="${esc(app.settings.token || "")}"></label></div>
       <div class="card"><p class="kicker">2 · Passphrase</p><p class="quiet">A sentence only the two of you know. It is not the GitHub token. It scrambles everything before it leaves the phone.</p>
         <input id="setup-pass" data-save="setup-pass" type="password" autocomplete="off" value="${esc(app.settings.passphrase || "")}"></div>
       <button class="primary full" type="button" data-action="test-connection">Test connection</button>
@@ -839,6 +854,7 @@ function presenceCard() {
 
 function viewMore() {
   return `<div class="view"><h1>More</h1>
+    <button class="list-btn" type="button" data-action="open-sync-key"><strong>Sync key</strong><br><small>Paste a new GitHub token</small></button>
     ${["calendar","album","presence","timeline","projects","keepsake","just","settings","about","pair"]
       .map((id) => `<button class="list-btn" type="button" data-go="#/${id}"><strong>${esc(labelFor(id))}</strong></button>`)
       .join("")}
@@ -923,6 +939,12 @@ function viewSettings() {
       `<label class="check"><input type="checkbox" data-action="work-night" data-dow="${i}" ${nights[i] ? "checked" : ""}> <span>${name} night</span></label>`
   ).join("");
   return `<div class="view"><h1>Settings</h1>
+    <div class="card" id="sync-key-card"><p class="kicker">Sync key</p>
+      <p>Paste a new GitHub token here. Your answers and passphrase stay on this phone.</p>
+      <label>Sync key<input id="sync-key" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_…"></label>
+      <button class="primary full" type="button" data-action="save-sync-key">Save sync key</button>
+      ${syncStatusBlock()}
+    </div>
     <div class="card"><p class="kicker">This phone</p>
       <button class="ghost" type="button" data-profile="tabby">I’m Tabby</button>
       <button class="ghost" type="button" data-profile="brandon">I’m Brandon</button>
@@ -930,15 +952,11 @@ function viewSettings() {
     <div class="card"><p class="kicker">Work nights</p><p class="quiet">Brandon works weekend nights at GE Aerospace, about a 36-hour week, sometimes overtime. Micro-dates land before those shifts. Bigger dates move to nights off.</p>${toggles}
       <label>What to call the shift<input id="shift-label" type="text" value="${esc(app.state.schedule.shiftLabel || "")}"></label>
       <button class="soft" type="button" data-action="save-shift">Save schedule</button></div>
-    <div class="card"><p class="kicker">Sync</p>
-      <label>GitHub token<input id="token" type="password" autocomplete="off" value="${esc(app.settings.token || "")}"></label>
+    <div class="card"><p class="kicker">Passphrase</p>
       <label>Shared passphrase<input id="pass" type="password" autocomplete="off" value="${esc(app.settings.passphrase || "")}"></label>
-      <p class="quiet small">The token and passphrase stay on this phone. The private repo only holds scrambled text.</p>
-      <button class="primary" type="button" data-action="save-secrets">Save</button>
-      <button class="ghost" type="button" data-action="test-connection">Test connection</button>
-      <button class="ghost" type="button" data-action="sync">Sync now</button>
+      <p class="quiet small">Leave this unless you are changing the sentence you share. It does not change when you paste a new sync key.</p>
+      <button class="ghost" type="button" data-action="save-passphrase">Save passphrase</button>
       <button class="text-btn" type="button" data-action="clear-secrets">Clear token and passphrase</button>
-      ${syncStatusBlock()}
     </div>
     ${app.settings.authorKey || app.settings.journalKey ? `<div class="card"><p class="kicker">Draft backup code</p><p class="small">Only you should keep this. It opens your unfinished writing on a new phone. It does not let the other person read drafts.</p><p style="word-break:break-all">${esc(app.settings.authorKey || app.settings.journalKey)}</p></div>` : ""}
     <button class="ghost" type="button" data-action="enable-notify">Notify me when it’s my turn</button>
@@ -1291,6 +1309,9 @@ function handle(action, btn) {
     render();
   }
   if (action === "save-secrets") saveSecrets();
+  if (action === "save-sync-key") saveSyncKey();
+  if (action === "save-passphrase") savePassphrase();
+  if (action === "open-sync-key") openSyncKey();
   if (action === "clear-secrets") {
     app.settings.token = "";
     app.settings.passphrase = "";
@@ -1570,6 +1591,27 @@ function rememberSetupFields() {
   if (tokenInput) app.settings.token = sync.cleanToken(tokenInput.value);
   if (passInput) app.settings.passphrase = passInput.value;
   if (app.settings.token && app.settings.passphrase && profile() === "tabby") app.settings.setupDone = true;
+}
+
+async function saveSyncKey() {
+  const token = sync.cleanToken(document.getElementById("sync-key")?.value || "");
+  if (!token) {
+    app.settings.lastSyncNote = "Paste the new sync key first.";
+    db.saveSettings(app.settings);
+    render();
+    return;
+  }
+  app.settings.token = token;
+  db.saveSettings(app.settings);
+  await testAndSync();
+}
+
+function savePassphrase() {
+  const value = document.getElementById("pass")?.value;
+  if (value != null) app.settings.passphrase = value;
+  db.saveSettings(app.settings);
+  app.settings.lastSyncNote = "Passphrase saved on this phone.";
+  render();
 }
 
 async function saveSecrets() {
