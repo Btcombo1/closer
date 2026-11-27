@@ -6,7 +6,8 @@ export function bytesToB64(bytes) {
   let bin = "";
   const chunk = 0x8000;
   for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    const sub = bytes.subarray(i, Math.min(i + chunk, bytes.length));
+    for (let j = 0; j < sub.length; j++) bin += String.fromCharCode(sub[j]);
   }
   return btoa(bin);
 }

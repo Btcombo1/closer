@@ -27,7 +27,7 @@ You can use Closer on one phone with no setup. To share answers between phones:
 5. Under **Repository access**, choose **Only select repositories**, and pick **closer-data**.
 6. Under **Permissions**, open **Repository permissions**, and set **Contents** to **Read and write**. Leave everything else alone.
 7. Generate the token and copy it. GitHub shows it only once.
-8. On Brandon’s phone, open Closer, go to **More**, then **Settings**. Paste the token. Then choose a passphrase together. The passphrase is not the GitHub token. It is a sentence only the two of you know. It scrambles the words before they are saved.
+8. On Brandon’s phone, open Closer and paste the token. Then choose a passphrase together. The passphrase is not the GitHub token. It is a sentence only the two of you know. Tap **Test connection**. A good result says it is connected and that `state.json` was created. If you see **401**, the token was rejected. If you see **403**, Contents is not set to Read and write. If you see **404**, the token cannot see the closer-data repo.
 9. Tap **Text the setup link** and send it to Tabby. You do not have to be together. She opens it once. The secrets sit in the hidden part of the link, and the app clears them from the address bar. Delete the text after her phone is set up.
 
 If a token is ever pasted into a text message by mistake, delete that token on GitHub, make a new one, and update both phones.

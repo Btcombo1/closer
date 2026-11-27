@@ -21,8 +21,8 @@ import {
   describeNew,
   visibleFinishedIds,
 } from "../js/logic.js";
-import { encryptJson, decryptJson, sealForWire, unsealForTabby, generateJournalKey } from "../js/crypto.js";
-import { syncNow } from "../js/sync.js";
+import { encryptJson, decryptJson, sealForWire, unsealForTabby, generateJournalKey, bytesToB64, b64ToBytes, utf8ToBytes, bytesToUtf8 } from "../js/crypto.js";
+import { syncNow, cleanToken, explainSyncError, contentsPutBody, GITHUB_BRANCH, GITHUB_OWNER, GITHUB_REPO } from "../js/sync.js";
 
 test("eight weeks, one date and at least one rest each week", () => {
   assert.equal(DAYS.length, 56);
@@ -295,6 +295,22 @@ test("partner notices only finished items", () => {
   assert.ok(notes.some((n) => n.includes("question")));
   const hidden = describeNew(visibleFinishedIds(state, "brandon"), state, "brandon");
   assert.equal(hidden.length, 0);
+});
+
+test("token cleanup and GitHub errors are specific", () => {
+  assert.equal(cleanToken("  Bearer github_pat_abc\n"), "github_pat_abc");
+  assert.equal(GITHUB_OWNER, "Btcombo1");
+  assert.equal(GITHUB_REPO, "closer-data");
+  assert.equal(GITHUB_BRANCH, "main");
+  assert.match(explainSyncError({ status: 401 }), /^401/);
+  assert.match(explainSyncError({ status: 403, detail: { message: "Resource not accessible by personal access token" } }), /403/);
+  assert.match(explainSyncError({ status: 404 }), /404/);
+  assert.match(explainSyncError({ name: "TypeError", message: "Failed to fetch" }), /could not reach GitHub/i);
+  const body = contentsPutBody({ bytes: utf8ToBytes("hello"), message: "Update Closer" });
+  assert.equal(body.branch, "main");
+  assert.equal(body.sha, undefined);
+  assert.equal(bytesToUtf8(b64ToBytes(body.content)), "hello");
+  assert.equal(bytesToB64(utf8ToBytes("hi")), btoa("hi"));
 });
 
 test("todayISO uses the local calendar day", () => {

@@ -105,7 +105,16 @@ function syncLabel() {
   if (app.syncing) return "Syncing…";
   if (!navigator.onLine) return "Offline · saved on this phone";
   if (!app.settings.token || !app.settings.passphrase) return "On this phone only";
-  return app.settings.lastSyncNote || "Saved on this phone";
+  return app.settings.lastSyncNote || "Not synced yet";
+}
+
+function syncIsError(note = app.settings.lastSyncNote || "") {
+  return /^(401|403|404|422|Could not|The phone|This does not|Paste the|GitHub)/.test(note);
+}
+
+function syncStatusBlock() {
+  const note = syncLabel();
+  return `<p class="${syncIsError(note) ? "sync-error" : "quiet"}" data-sync-note>${esc(note)}</p>`;
 }
 
 function topbar() {
@@ -126,7 +135,7 @@ function partnerCard(def, rec) {
   const when = app.settings.lastSyncAt
     ? new Date(app.settings.lastSyncAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : "not yet";
-  return `<article class="card status-card"><p class="kicker">Partner</p><h2>${esc(status.label)}</h2><p>${esc(status.detail)}</p><p class="quiet small">Last synced ${esc(when)} · ${esc(syncLabel())}</p><button class="ghost" type="button" data-action="sync">Sync now</button></article>`;
+  return `<article class="card status-card"><p class="kicker">Partner</p><h2>${esc(status.label)}</h2><p>${esc(status.detail)}</p><p class="quiet small">Last synced ${esc(when)}</p>${syncStatusBlock()}<button class="ghost" type="button" data-action="sync">Sync now</button></article>`;
 }
 
 function viewSetup() {
@@ -138,7 +147,9 @@ function viewSetup() {
         <input id="setup-token" data-save="setup-token" type="password" autocomplete="off" placeholder="github_pat_…" value="${esc(app.settings.token || "")}"></div>
       <div class="card"><p class="kicker">2 · Passphrase</p><p class="quiet">A sentence only the two of you know. It is not the GitHub token. It scrambles everything before it leaves the phone.</p>
         <input id="setup-pass" data-save="setup-pass" type="password" autocomplete="off" value="${esc(app.settings.passphrase || "")}"></div>
-      <button class="primary full" type="button" data-action="save-setup">Save and make Tabby’s link</button>
+      <button class="primary full" type="button" data-action="test-connection">Test connection</button>
+      <button class="soft full" type="button" data-action="save-setup">Save and make Tabby’s link</button>
+      ${syncStatusBlock()}
       ${app.settings.token && app.settings.passphrase ? pairPanel() : ""}
       <button class="text-btn" type="button" data-action="skip-setup">Use this phone only for now</button></div>`;
   }
@@ -149,7 +160,9 @@ function viewSetup() {
     <div class="card"><p class="kicker">Or enter them yourself</p>
       <input id="setup-token" data-save="setup-token" type="password" autocomplete="off" placeholder="Token" value="${esc(app.settings.token || "")}">
       <input id="setup-pass" data-save="setup-pass" type="password" autocomplete="off" placeholder="Passphrase" value="${esc(app.settings.passphrase || "")}">
-      <button class="soft full" type="button" data-action="save-setup">Save</button></div>
+      <button class="primary full" type="button" data-action="test-connection">Test connection</button>
+      <button class="soft full" type="button" data-action="save-setup">Save</button>
+      ${syncStatusBlock()}</div>
     <button class="text-btn" type="button" data-action="skip-setup">Use this phone only for now</button></div>`;
 }
 
@@ -922,9 +935,10 @@ function viewSettings() {
       <label>Shared passphrase<input id="pass" type="password" autocomplete="off" value="${esc(app.settings.passphrase || "")}"></label>
       <p class="quiet small">The token and passphrase stay on this phone. The private repo only holds scrambled text.</p>
       <button class="primary" type="button" data-action="save-secrets">Save</button>
+      <button class="ghost" type="button" data-action="test-connection">Test connection</button>
       <button class="ghost" type="button" data-action="sync">Sync now</button>
       <button class="text-btn" type="button" data-action="clear-secrets">Clear token and passphrase</button>
-      <p class="quiet" data-sync-note>${esc(app.settings.lastSyncNote || "")}</p>
+      ${syncStatusBlock()}
     </div>
     ${app.settings.authorKey || app.settings.journalKey ? `<div class="card"><p class="kicker">Draft backup code</p><p class="small">Only you should keep this. It opens your unfinished writing on a new phone. It does not let the other person read drafts.</p><p style="word-break:break-all">${esc(app.settings.authorKey || app.settings.journalKey)}</p></div>` : ""}
     <button class="ghost" type="button" data-action="enable-notify">Notify me when it’s my turn</button>
@@ -1173,8 +1187,6 @@ function handle(action, btn) {
     render();
   }
   if (action === "present") markPresent(btn.dataset.id, btn.dataset.title);
-  if (action === "ask") addQuestion();
-  if (action === "reply" || action === "follow") addThread(btn.dataset.id, action);
   if (action === "close-q") {
     const q = app.state.questions.find((item) => item.id === btn.dataset.id);
     if (q) q.status = "closed";
@@ -1186,17 +1198,23 @@ function handle(action, btn) {
   if (action === "finish-ask") finishAsk(btn.dataset.id);
   if (action === "finish-reply") finishReply(btn.dataset.id, btn.dataset.mid);
   if (action === "save-setup") {
-    app.settings.token = document.getElementById("setup-token")?.value?.trim() || app.settings.token;
-    app.settings.passphrase = document.getElementById("setup-pass")?.value || app.settings.passphrase;
-    if (app.settings.token && app.settings.passphrase && profile() === "tabby") app.settings.setupDone = true;
+    rememberSetupFields();
     db.saveSettings(app.settings);
-    render();
+    if (app.settings.token && app.settings.passphrase) testAndSync();
+    else render();
+  }
+  if (action === "test-connection") {
+    rememberSetupFields();
+    db.saveSettings(app.settings);
+    testAndSync();
   }
   if (action === "finish-setup") {
+    rememberSetupFields();
     app.settings.setupDone = true;
     db.saveSettings(app.settings);
     go("#/today");
-    render();
+    if (app.settings.token && app.settings.passphrase) testAndSync();
+    else render();
   }
   if (action === "skip-setup") {
     app.settings.skipSync = true;
@@ -1546,16 +1564,49 @@ function addMore(phase) {
   render();
 }
 
+function rememberSetupFields() {
+  const tokenInput = document.getElementById("setup-token") || document.getElementById("token");
+  const passInput = document.getElementById("setup-pass") || document.getElementById("pass");
+  if (tokenInput) app.settings.token = sync.cleanToken(tokenInput.value);
+  if (passInput) app.settings.passphrase = passInput.value;
+  if (app.settings.token && app.settings.passphrase && profile() === "tabby") app.settings.setupDone = true;
+}
+
 async function saveSecrets() {
-  app.settings.token = document.getElementById("token")?.value?.trim() || "";
+  app.settings.token = sync.cleanToken(document.getElementById("token")?.value || "");
   app.settings.passphrase = document.getElementById("pass")?.value || "";
   db.saveSettings(app.settings);
-  app.settings.lastSyncNote = "Saved on this phone";
+  if (app.settings.token && app.settings.passphrase) await testAndSync();
+  else {
+    app.settings.lastSyncNote = "On this phone only";
+    render();
+  }
+}
+
+async function testAndSync() {
+  app.settings.token = sync.cleanToken(app.settings.token);
+  app.settings.lastSyncNote = "Testing GitHub…";
+  db.saveSettings(app.settings);
   render();
+  const result = await sync.testConnection(app.settings.token);
+  app.settings.lastSyncNote = result.message;
+  db.saveSettings(app.settings);
+  if (!result.ok) {
+    render();
+    return;
+  }
+  if (!app.settings.passphrase) {
+    app.settings.lastSyncNote = "Connected. Add the passphrase, then Test connection again to write the shared file.";
+    db.saveSettings(app.settings);
+    render();
+    return;
+  }
+  await doSync();
 }
 
 async function doSync(opts = {}) {
   if (app.syncing) return;
+  app.settings.token = sync.cleanToken(app.settings.token);
   if (!app.settings.token || !app.settings.passphrase) {
     app.settings.lastSyncNote = "On this phone only";
     db.saveSettings(app.settings);
@@ -1575,7 +1626,7 @@ async function doSync(opts = {}) {
     }
     const before = app.seenFinished || logic.visibleFinishedIds(app.state, profile());
     const local = logic.stripForeignDrafts(await crypto.sealForWire(app.state, app.settings.authorKey, profile()), profile());
-    const transport = sync.githubTransport(app.settings.token);
+    const transport = sync.githubTransport(sync.cleanToken(app.settings.token));
     const result = await sync.syncNow({
       localState: local,
       transport,
@@ -1639,9 +1690,10 @@ async function doSync(opts = {}) {
     await db.saveState(app.state);
     app.settings.lastSyncAt = Date.now();
     const clock = new Date(app.settings.lastSyncAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    app.settings.lastSyncNote = result.status === "up-to-date" ? `Synced · ${clock}` : `Synced · ${clock}`;
+    const wrote = result.status === "created" ? "state.json created" : result.status === "synced" ? "state.json updated" : "already up to date";
+    app.settings.lastSyncNote = `Synced · ${wrote} · ${clock}`;
   } catch (err) {
-    app.settings.lastSyncNote = err.code === "passphrase" ? err.message : "Saved on this phone. Will try again.";
+    app.settings.lastSyncNote = sync.explainSyncError(err);
   }
   app.syncing = false;
   db.saveSettings(app.settings);
