@@ -16,6 +16,10 @@ import {
   sanitizeState,
   DEFAULT_CELEBRATIONS,
   todayISO,
+  partnerStatus,
+  stripForeignDrafts,
+  describeNew,
+  visibleFinishedIds,
 } from "../js/logic.js";
 import { encryptJson, decryptJson, sealForWire, unsealForTabby, generateJournalKey } from "../js/crypto.js";
 import { syncNow } from "../js/sync.js";
@@ -235,6 +239,62 @@ test("sync merges on conflict and writes photos separately", async () => {
     photoStore: { async getShas() { return { pic: stored.sha }; }, async getCipher() { return stored.cipher; } },
   });
   assert.equal(second.status, "up-to-date");
+});
+
+test("drafts stay author-only on the wire", async () => {
+  const key = await generateJournalKey();
+  const other = await generateJournalKey();
+  const state = {
+    days: {
+      w3d1: {
+        tabby: { text: "her private incident draft", finished: false, updatedAt: 2 },
+        brandon: { text: "his private reply draft", finished: false, updatedAt: 3 },
+      },
+    },
+    journal: [{ id: "j1", by: "tabby", text: "journal draft words", finished: false, share: false, updatedAt: 4 }],
+    questions: [{ id: "q1", author: "tabby", text: "secret question words", finished: false, status: "draft", updatedAt: 5, thread: [] }],
+    phaseSeals: { incident: { additions: [{ id: "a1", by: "tabby", text: "more incident words", finished: false, updatedAt: 6 }] } },
+  };
+  const sealed = await sealForWire(state, key, "tabby");
+  const blob = JSON.stringify(sealed);
+  assert.equal(blob.includes("her private incident draft"), false);
+  assert.equal(blob.includes("journal draft words"), false);
+  assert.equal(blob.includes("secret question words"), false);
+  assert.equal(blob.includes("more incident words"), false);
+  assert.equal(blob.includes("his private reply draft"), false);
+  const hers = await unsealForTabby(sealed, key);
+  assert.equal(hers.days.w3d1.tabby.text, "her private incident draft");
+  assert.equal(hers.days.w3d1.brandon.text, undefined);
+  const status = partnerStatus({
+    def: { kind: "prompt", owner: "tabby", phase: "incident" },
+    record: sealed.days.w3d1,
+    viewer: "brandon",
+    state: sealed,
+  });
+  assert.equal(status.label, "Tabby is writing");
+  assert.equal(JSON.stringify(status).includes("incident draft"), false);
+  const stripped = stripForeignDrafts(
+    { days: { w3d1: { tabby: { text: "should not travel", finished: false, updatedAt: 1 } } }, journal: [], questions: [] },
+    "brandon"
+  );
+  assert.equal(stripped.days.w3d1.tabby.text, undefined);
+  const openedOther = await decryptJson(await encryptJson(sealed, "pass"), "pass");
+  assert.equal(JSON.stringify(openedOther).includes("her private"), false);
+  assert.ok(other);
+});
+
+test("partner notices only finished items", () => {
+  const before = [];
+  const state = {
+    days: { w1d1: { tabby: { text: "now visible", finished: true, finishedAt: 9 } } },
+    questions: [{ id: "q1", author: "tabby", text: "a real question", finished: true, finishedAt: 8, thread: [] }],
+    journal: [],
+  };
+  const notes = describeNew(before, state, "brandon");
+  assert.ok(notes.some((n) => n.includes("Your turn") || n.includes("finished")));
+  assert.ok(notes.some((n) => n.includes("question")));
+  const hidden = describeNew(visibleFinishedIds(state, "brandon"), state, "brandon");
+  assert.equal(hidden.length, 0);
 });
 
 test("todayISO uses the local calendar day", () => {

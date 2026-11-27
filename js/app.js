@@ -46,6 +46,7 @@ function consumePair() {
   app.settings.token = token;
   app.settings.passphrase = pass;
   app.settings.profile = params.get("who") || "tabby";
+  app.settings.setupDone = true;
   if (app.settings.profile === "tabby" && !app.settings.journalKey) {
     crypto.generateJournalKey().then((key) => {
       app.settings.journalKey = key;
@@ -68,8 +69,12 @@ function scheduleSave() {
     app.state.updatedAt = Date.now();
     await db.saveState(app.state);
     const note = document.querySelector("[data-sync-note]");
-    if (note) note.textContent = navigator.onLine ? "Saved on this phone" : "Saved here, offline";
-  }, 350);
+    if (note && !app.syncing) note.textContent = navigator.onLine ? "Saved on this phone" : "Offline · saved on this phone";
+  }, 400);
+  clearTimeout(app.syncTimer);
+  app.syncTimer = setTimeout(() => {
+    if (app.settings.token && app.settings.passphrase) doSync({ quiet: true });
+  }, 3500);
 }
 
 function profile() {
@@ -84,9 +89,10 @@ async function render() {
   routeFromHash();
   const root = document.getElementById("app");
   const onboard = !profile();
-  const rest = !onboard && app.route === "today" && restDay();
-  root.className = "app" + (onboard || rest || app.route === "rest" ? " solo" : "");
-  root.innerHTML = onboard ? viewOnboard() : shell(await body());
+  const setup = !onboard && !app.settings.setupDone && !app.settings.skipSync;
+  const rest = !onboard && !setup && app.route === "today" && restDay();
+  root.className = "app" + (onboard || setup || rest || app.route === "rest" ? " solo" : "");
+  root.innerHTML = onboard ? viewOnboard() : setup ? viewSetup() : shell(await body());
   document.getElementById("splash")?.classList.add("hide");
 }
 
@@ -95,9 +101,81 @@ function shell(inner) {
   return `${topbar()}${inner}${nav()}${app.sheet || ""}${app.calming ? calmingOverlay() : ""}`;
 }
 
+function syncLabel() {
+  if (app.syncing) return "Syncing…";
+  if (!navigator.onLine) return "Offline · saved on this phone";
+  if (!app.settings.token || !app.settings.passphrase) return "On this phone only";
+  return app.settings.lastSyncNote || "Saved on this phone";
+}
+
 function topbar() {
-  const note = app.settings.lastSyncNote || "Saved on this phone";
-  return `<header class="top"><div class="brand">Closer</div><div class="sync-note" data-sync-note>${esc(note)}</div></header>`;
+  return `<header class="top"><div class="brand">Closer</div><button class="sync-note" type="button" data-action="sync" data-sync-note>${esc(syncLabel())}</button></header>${turnBanner()}`;
+}
+
+function turnBanner() {
+  if (app.banner) return `<div class="banner"><strong>Your turn</strong><p>${esc(app.banner)}</p></div>`;
+  if (yourTurnNow()) {
+    const def = DAYS[logic.currentIndex(app.state, DAYS)];
+    return `<div class="banner"><strong>Your turn</strong><p>${esc(def?.title || "This step is yours.")}</p></div>`;
+  }
+  return "";
+}
+
+function partnerCard(def, rec) {
+  const status = logic.partnerStatus({ def, record: rec || {}, viewer: profile(), state: app.state });
+  const when = app.settings.lastSyncAt
+    ? new Date(app.settings.lastSyncAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : "not yet";
+  return `<article class="card status-card"><p class="kicker">Partner</p><h2>${esc(status.label)}</h2><p>${esc(status.detail)}</p><p class="quiet small">Last synced ${esc(when)} · ${esc(syncLabel())}</p><button class="ghost" type="button" data-action="sync">Sync now</button></article>`;
+}
+
+function viewSetup() {
+  const who = profile();
+  if (who === "brandon") {
+    return `<div class="view"><p class="kicker">One-time setup</p><h1>Connect the two phones.</h1>
+      <p class="lede">You do not need to be in the same room. This phone keeps the token and the passphrase. Tabby opens one link, once.</p>
+      <div class="card"><p class="kicker">1 · Token</p><p class="quiet">On GitHub, make a fine-grained token for the closer-data repo only, with Contents set to read and write. Paste it here.</p>
+        <input id="setup-token" data-save="setup-token" type="password" autocomplete="off" placeholder="github_pat_…" value="${esc(app.settings.token || "")}"></div>
+      <div class="card"><p class="kicker">2 · Passphrase</p><p class="quiet">A sentence only the two of you know. It is not the GitHub token. It scrambles everything before it leaves the phone.</p>
+        <input id="setup-pass" data-save="setup-pass" type="password" autocomplete="off" value="${esc(app.settings.passphrase || "")}"></div>
+      <button class="primary full" type="button" data-action="save-setup">Save and make Tabby’s link</button>
+      ${app.settings.token && app.settings.passphrase ? pairPanel() : ""}
+      <button class="text-btn" type="button" data-action="skip-setup">Use this phone only for now</button></div>`;
+  }
+  return `<div class="view"><p class="kicker">One-time setup</p><h1>Open the link Brandon sent.</h1>
+    <p class="lede">It can be a text. You only do this once. After it opens, the secrets are cleared from the address bar.</p>
+    <div class="card"><label>Paste the link if it did not open itself<textarea id="setup-link" placeholder="https://btcombo1.github.io/closer/#t=…"></textarea></label>
+      <button class="primary full" type="button" data-action="paste-link">Set up this phone</button></div>
+    <div class="card"><p class="kicker">Or enter them yourself</p>
+      <input id="setup-token" data-save="setup-token" type="password" autocomplete="off" placeholder="Token" value="${esc(app.settings.token || "")}">
+      <input id="setup-pass" data-save="setup-pass" type="password" autocomplete="off" placeholder="Passphrase" value="${esc(app.settings.passphrase || "")}">
+      <button class="soft full" type="button" data-action="save-setup">Save</button></div>
+    <button class="text-btn" type="button" data-action="skip-setup">Use this phone only for now</button></div>`;
+}
+
+function pairPanel() {
+  const link = pairLink();
+  const message = `Tabby, open this once to set up Closer. Then you can delete this message.\n${link}`;
+  let qr = "";
+  try {
+    const maker = qrcode(0, "M");
+    maker.addData(link);
+    maker.make();
+    qr = maker.createSvgTag({ cellSize: 4, margin: 2 });
+  } catch {
+    qr = "";
+  }
+  return `<div class="card"><p class="kicker">3 · Text this to Tabby</p><p>She does not need to be next to you. One tap sets up her phone.</p>${qr}
+    <button class="primary full" type="button" data-action="share-setup">Text the setup link</button>
+    <button class="ghost full" type="button" data-action="copy-link">Copy the message</button>
+    <button class="soft full" type="button" data-action="finish-setup">We’ve done this</button></div>`;
+}
+
+function yourTurnNow() {
+  const idx = logic.currentIndex(app.state, DAYS);
+  const def = DAYS[idx];
+  if (!def) return false;
+  return logic.turnState(def, app.state.days[def.id], profile(), app.state).code === "your-turn";
 }
 
 function nav() {
@@ -109,10 +187,10 @@ function nav() {
     ["more", "More"],
   ];
   return `<nav class="nav">${items
-    .map(
-      ([id, label]) =>
-        `<button type="button" data-go="#/${id}" class="${app.route === id ? "on" : ""}">${label}</button>`
-    )
+    .map(([id, label]) => {
+      const dot = id === "today" && (yourTurnNow() || app.banner) ? `<i class="nav-dot"></i>` : "";
+      return `<button type="button" data-go="#/${id}" class="${app.route === id ? "on" : ""}">${dot}${label}</button>`;
+    })
     .join("")}</nav>`;
 }
 
@@ -213,6 +291,7 @@ function waitingView(def, turn) {
     ? "Tabby is writing in her own time. You do not need to check or hurry. If you want to be kind without asking for an update, you can be in the same room without opening the topic."
     : `You’ve done your part for now. You can put the phone down. ${otherName()} will answer when they open Closer.`;
   return `<div class="view">
+    ${partnerCard(def, app.state.days[def.id] || {})}
     ${progress()}
     <p class="pill wait">${esc(turn.label)}</p>
     <h1>${esc(def.title)}</h1>
@@ -235,6 +314,7 @@ function pausedView(def) {
 function workView(def, rec, turn) {
   const week = weekOf(def);
   return `<div class="view">
+    ${partnerCard(def, rec)}
     ${progress()}
     <p class="kicker">Week ${def.week} · ${esc(week?.theme || "")}</p>
     ${def.core ? `<p class="heart">The heart of this path</p>` : ""}
@@ -292,21 +372,36 @@ function kindBody(def, rec) {
   return bothAnswers(def, rec);
 }
 
+function draftBadge() {
+  return `<p class="pill rose">Draft — only you can see this</p>`;
+}
+
+function finishedBadge(answer) {
+  if (!answer?.finished) return draftBadge();
+  const when = answer.finishedAt
+    ? new Date(answer.finishedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    : "";
+  return `<p class="pill sage">Finished${when ? ` · ${esc(when)}` : ""} · read only</p>`;
+}
+
 function answerEditor(dayId, who, answer, label, starters) {
   const mine = profile() === who;
   const view = logic.answerView(answer, profile(), who);
   if (!mine && view.state !== "visible") {
-    const text = view.state === "private" || view.state === "hidden" ? "Still private. You will see this when it is marked finished." : "Nothing here yet.";
+    const text = answer?.private || answer?.ct ? `${cap(who)} is writing. You will see it when they tap Mark finished.` : "Nothing here yet.";
     return `<div class="note"><strong>${esc(label)}</strong><p>${text}</p></div>`;
   }
-  if (!mine && view.state === "visible") return `<div class="note"><strong>${esc(label)}</strong><p>${nl(view.text)}</p></div>`;
+  if (!mine && view.state === "visible") {
+    return `<div class="note"><strong>${esc(label)}</strong>${finishedBadge(answer)}<p>${nl(view.text)}</p></div>`;
+  }
   const done = answer?.finished;
   return `<label><strong>${esc(label)}</strong>
+    ${finishedBadge(answer)}
     <textarea data-save="answer" data-day="${dayId}" data-who="${who}" ${done ? "readonly" : ""}>${esc(answer?.text || "")}</textarea>
   </label>
-  ${done ? "" : `<div class="chips">${(starters || []).map((s) => `<button type="button" class="chip" data-action="starter" data-day="${dayId}" data-who="${who}">${esc(s)}</button>`).join("")}</div>
-  <p class="quiet small">${who === "tabby" ? "This stays private until you mark it finished." : "A shape that helps: what you heard, why it makes sense, your part, what you want her to know."}</p>
-  <button class="primary" type="button" data-action="finish" data-day="${dayId}" data-who="${who}">${who === "tabby" ? "I’ve finished — Brandon may read this" : "Ready for Tabby"}</button>`}`;
+  ${done ? `<p class="quiet small">Saved ${esc(answer?.finishedAt ? "and sealed" : "")}. ${cap(who === "tabby" ? "brandon" : "tabby")} can read this now.</p>` : `<div class="chips">${(starters || []).map((s) => `<button type="button" class="chip" data-action="starter" data-day="${dayId}" data-who="${who}">${esc(s)}</button>`).join("")}</div>
+  <p class="quiet small">${who === "brandon" ? "A shape that helps: what you heard, why it makes sense, your part, what you want her to know. " : ""}Autosaved on this phone. It stays hidden until you mark it finished.</p>
+  <button class="primary" type="button" data-action="finish" data-day="${dayId}" data-who="${who}">Mark finished</button>`}`;
 }
 
 function bothAnswers(def, rec) {
@@ -336,8 +431,9 @@ function partsBody(def, rec) {
       }
       const done = answer?.finished;
       return `<label><strong>${esc(part.prompt)}</strong>
+        ${finishedBadge(answer)}
         <textarea data-save="part" data-day="${def.id}" data-part="${part.id}" ${done ? "readonly" : ""}>${esc(answer?.text || "")}</textarea></label>
-        ${done ? "" : `<button class="primary" type="button" data-action="finish-part" data-day="${def.id}" data-part="${part.id}">I’ve finished this part</button>`}`;
+        ${done ? "" : `<button class="primary" type="button" data-action="finish-part" data-day="${def.id}" data-part="${part.id}">Mark finished</button>`}`;
     })
     .join("");
 }
@@ -363,10 +459,10 @@ function exerciseBody(def, rec) {
   const lesson = (def.lesson || []).map((p) => `<p>${esc(p)}</p>`).join("");
   const examples = (def.examples || []).map((e) => `<p><strong>${esc(e.kind)}. </strong>${esc(e.text)}</p>`).join("");
   const editor = mine.finished
-    ? `<div class="note"><p><strong>Helping.</strong> ${nl(mine.helping)}</p><p><strong>Criticism.</strong> ${nl(mine.criticism)}</p></div>`
-    : `<label>Your helping version<textarea data-save="ex" data-day="${def.id}" data-field="helping">${esc(mine.helping || "")}</textarea></label>
+    ? `<div class="note">${finishedBadge(mine)}<p><strong>Helping.</strong> ${nl(mine.helping)}</p><p><strong>Criticism.</strong> ${nl(mine.criticism)}</p></div>`
+    : `${draftBadge()}<label>Your helping version<textarea data-save="ex" data-day="${def.id}" data-field="helping">${esc(mine.helping || "")}</textarea></label>
        <label>Your criticism version<textarea data-save="ex" data-day="${def.id}" data-field="criticism">${esc(mine.criticism || "")}</textarea></label>
-       <button class="primary" type="button" data-action="finish-ex" data-day="${def.id}">Share my versions</button>`;
+       <button class="primary" type="button" data-action="finish-ex" data-day="${def.id}">Mark finished</button>`;
   let rate = "";
   if (revealed) {
     const other = profile() === "tabby" ? "brandon" : "tabby";
@@ -480,7 +576,18 @@ function viewDayRead(id) {
   }
   if (def.index === idx) return `<div class="view"><button class="text-btn" type="button" data-go="#/today">This is today’s step</button>${workView(def, app.state.days[id] || {}, logic.turnState(def, app.state.days[id], profile(), app.state))}</div>`;
   const rec = app.state.days[id] || {};
-  return `<div class="view"><button class="text-btn" type="button" data-go="#/path">Back</button><h1>${esc(def.title)}</h1>${verseCard(def)}<div class="card">${readAnswers(def, rec)}</div><button class="ghost" type="button" data-action="add-more" data-phase="${def.phase}">Add more later</button></div>`;
+  const additions = (app.state.phaseSeals?.[def.phase]?.additions || [])
+    .map((add) => {
+      const owner = add.by || "tabby";
+      if (!add.finished && owner !== profile()) return `<div class="note"><p>${cap(owner)} is adding more. Still a draft.</p></div>`;
+      if (!add.finished && owner === profile()) {
+        return `<div class="card">${draftBadge()}<p>${nl(add.text || "")}</p><button class="primary" type="button" data-action="finish-add" data-phase="${def.phase}" data-id="${add.id}">Mark finished</button></div>`;
+      }
+      if (!add.text) return "";
+      return `<div class="note">${finishedBadge(add)}<p>${nl(add.text)}</p></div>`;
+    })
+    .join("");
+  return `<div class="view"><button class="text-btn" type="button" data-go="#/path">Back</button><h1>${esc(def.title)}</h1>${verseCard(def)}<div class="card">${readAnswers(def, rec)}</div>${additions}<button class="ghost" type="button" data-action="add-more" data-phase="${def.phase}">Add more later</button></div>`;
 }
 
 function readAnswers(def, rec) {
@@ -505,61 +612,90 @@ function viewWords() {
 }
 
 function viewAsk() {
-  const list = [...(app.state.questions || [])].reverse();
-  const form =
-    profile() === "tabby"
-      ? `<div class="card"><label>Ask anything<textarea id="ask-text" placeholder="What I still need to know is…"></textarea></label>
-      <label class="check"><input id="ask-incident" type="checkbox"> <span>This is about the incident</span></label>
-      <button class="primary" type="button" data-action="ask">Send to Brandon</button></div>`
-      : `<p class="quiet">Questions from Tabby land here. Answer honestly. She can follow up.</p>`;
+  const mine = profile() === "tabby";
+  const draft = (app.state.questions || []).find((q) => (q.author || "tabby") === "tabby" && !q.finished && (mine || q.text));
+  const list = [...(app.state.questions || [])].reverse().filter((q) => {
+    if (!q.finished && (q.author || "tabby") !== profile()) return false;
+    if (q.private && !q.text && (q.author || "tabby") !== profile()) return false;
+    if (!q.finished && q === draft) return false;
+    return true;
+  });
+  const form = mine
+    ? `<div class="card">${draftBadge()}
+      <label>Ask anything<textarea data-save="ask-live" data-id="${esc(draft?.id || "")}" placeholder="What I still need to know is…">${esc(draft?.text || "")}</textarea></label>
+      <label class="check"><input data-save="ask-incident" data-id="${esc(draft?.id || "")}" type="checkbox" ${draft?.aboutIncident ? "checked" : ""}> <span>This is about the incident</span></label>
+      <p class="quiet small">Autosaved. Brandon cannot see this until you mark it finished.</p>
+      <button class="primary" type="button" data-action="finish-ask" data-id="${esc(draft?.id || "")}">Mark finished</button></div>`
+    : `<p class="quiet">Questions appear here after Tabby marks them finished. Your reply stays a draft until you do the same.</p>`;
   const rows = list
-    .map(
-      (q) =>
-        `<button class="list-btn" type="button" data-go="#/ask/${q.id}"><strong>${esc(q.text)}</strong><br><small>${esc(q.status)}${q.aboutIncident ? " · incident" : ""}</small></button>`
-    )
+    .map((q) => {
+      const label = q.text || (q.locked ? "This draft needs your backup code." : "Draft");
+      const state = q.finished ? "Finished" : "Draft";
+      return `<button class="list-btn" type="button" data-go="#/ask/${q.id}"><strong>${esc(label)}</strong><br><small>${state}${q.aboutIncident && q.finished ? " · incident" : ""}</small></button>`;
+    })
     .join("");
-  return `<div class="view"><h1>Ask Brandon</h1><p class="quiet">This stays outside the daily step. Nothing here is lost, and nothing restarts the path.</p>${form}${rows || `<div class="card"><p>No questions yet.</p></div>`}</div>`;
+  return `<div class="view"><h1>Ask Brandon</h1><p class="quiet">This stays outside the daily step. A question stays yours alone until you mark it finished.</p>${form}${rows || `<div class="card"><p>No finished questions yet.</p></div>`}</div>`;
 }
 
 function viewThread(id) {
   const q = (app.state.questions || []).find((item) => item.id === id);
   if (!q) return `<div class="view"><p>That question is not here.</p></div>`;
+  const qOwner = q.author || "tabby";
+  if (qOwner !== profile() && !q.finished) {
+    return `<div class="view"><button class="text-btn" type="button" data-go="#/ask">All questions</button><h1>Still a draft</h1><p>You will see this when it is marked finished.</p></div>`;
+  }
   const thread = (q.thread || [])
-    .map((m) => `<div class="note"><strong>${m.role === "answer" ? "Brandon" : "Tabby"}</strong><p>${nl(m.text)}</p></div>`)
+    .filter((m) => m.finished || (m.author || (m.role === "answer" ? "brandon" : "tabby")) === profile())
+    .map((m) => {
+      const who = m.author || (m.role === "answer" ? "brandon" : "tabby");
+      if (!m.finished && who !== profile()) return "";
+      return `<div class="note"><strong>${cap(who)}</strong>${m.finished ? finishedBadge(m) : draftBadge()}<p>${nl(m.text || "")}</p></div>`;
+    })
     .join("");
-  const box =
-    profile() === "brandon" && q.status !== "closed"
-      ? `<textarea id="reply-text" placeholder="The honest answer is…"></textarea><button class="primary" type="button" data-action="reply" data-id="${q.id}">Send this answer</button>`
-      : profile() === "tabby" && q.status !== "closed"
-        ? `<textarea id="reply-text" placeholder="A follow-up, if you want one"></textarea><button class="soft" type="button" data-action="follow" data-id="${q.id}">Add a follow-up</button><button class="ghost" type="button" data-action="close-q" data-id="${q.id}">This feels answered</button>`
-        : "";
-  return `<div class="view"><button class="text-btn" type="button" data-go="#/ask">All questions</button><h1>${esc(q.text)}</h1>${thread}${box}</div>`;
+  const mineDraft = (q.thread || []).find((m) => (m.author || (m.role === "answer" ? "brandon" : "tabby")) === profile() && !m.finished);
+  const canReply = q.finished && q.status !== "closed";
+  const box = canReply
+    ? `<div class="card">${draftBadge()}<textarea data-save="reply-live" data-id="${q.id}" data-mid="${esc(mineDraft?.id || "")}" placeholder="${profile() === "brandon" ? "The honest answer is…" : "A follow-up, if you want one"}">${esc(mineDraft?.text || "")}</textarea>
+      <button class="primary" type="button" data-action="finish-reply" data-id="${q.id}" data-mid="${esc(mineDraft?.id || "")}">Mark finished</button>
+      ${profile() === "tabby" ? `<button class="ghost" type="button" data-action="close-q" data-id="${q.id}">This feels answered</button>` : ""}</div>`
+    : "";
+  const title = q.finished || qOwner === profile() ? q.text || "Question" : "Question";
+  return `<div class="view"><button class="text-btn" type="button" data-go="#/ask">All questions</button><h1>${esc(title)}</h1>${q.finished ? finishedBadge(q) : draftBadge()}${thread}${box}</div>`;
 }
 
 function viewJournal() {
-  const mine = profile() === "tabby";
-  const entries = (app.state.journal || []).filter((e) => !e.removed && (mine || e.visibility === "shared") && !(e.private && !mine));
-  const form = mine
-    ? `<div class="card"><label>Get it all out<textarea id="journal-text"></textarea></label>
-      <label class="check"><input id="journal-share" type="checkbox"> <span>Share this one with Brandon</span></label>
-      <p class="quiet small">Left alone, it stays private on your phone and in the encrypted backup only you can open.</p>
-      <button class="primary" type="button" data-action="journal">Save entry</button></div>`
-    : `<p class="quiet">Shared entries only. You can acknowledge them. This is not a place to defend.</p>`;
-  const rows = entries
+  const who = profile();
+  const draft = (app.state.journal || []).find((e) => (e.by || "tabby") === who && !e.finished && !e.removed);
+  const form =
+    who === "tabby"
+      ? `<div class="card">${draftBadge()}
+      <label>Get it all out<textarea data-save="journal-live" data-id="${esc(draft?.id || "")}">${esc(draft?.text || "")}</textarea></label>
+      <label class="check"><input data-save="journal-share" data-id="${esc(draft?.id || "")}" type="checkbox" ${draft?.share ? "checked" : ""}> <span>Share with Brandon after I mark this finished</span></label>
+      <p class="quiet small">Autosaved. He cannot read a draft, even after the phones sync.</p>
+      <button class="primary" type="button" data-action="finish-journal" data-id="${esc(draft?.id || "")}">Mark finished</button></div>`
+      : `<p class="quiet">You see an entry only after Tabby marks it finished and chooses to share it. An acknowledgment stays yours until you mark that finished too.</p>`;
+  const rows = (app.state.journal || [])
+    .filter((e) => !e.removed && e !== draft)
     .map((e) => {
-      const text = e.text || (e.locked ? "This private entry needs the backup code in Settings." : e.visibility === "private" ? "" : "");
-      if (!mine && e.visibility !== "shared") return "";
-      if (!text && e.visibility === "private") return "";
-      return `<article class="card"><p class="small quiet">${e.visibility === "private" ? "Private" : "Shared"}</p><p>${nl(text)}</p>${
-        !mine && e.visibility === "shared"
-          ? `<textarea data-ack="${e.id}" placeholder="I hear you. I’m not here to correct this.">${esc(e.ack?.text || "")}</textarea><button class="soft" type="button" data-action="ack-journal" data-id="${e.id}">Leave an acknowledgment</button>`
-          : e.ack?.text
-            ? `<div class="note"><strong>Brandon</strong><p>${nl(e.ack.text)}</p></div>`
+      const owner = e.by || "tabby";
+      const mine = owner === who;
+      if (!e.finished && !mine) return "";
+      if (e.finished && e.visibility !== "shared" && !mine) return "";
+      if (!mine && e.private && !e.text) return "";
+      const text = e.text || (e.locked ? "This draft needs the backup code in Settings." : "");
+      if (!text && !mine) return "";
+      const ack = e.ack;
+      const ackVisible = ack && (ack.finished || who === "brandon");
+      return `<article class="card">${mine && !e.finished ? draftBadge() : e.finished ? finishedBadge(e) : ""}<p class="small quiet">${e.visibility === "shared" && e.finished ? "Shared" : "Private"}</p><p>${nl(text)}</p>${
+        who === "brandon" && e.finished && e.visibility === "shared"
+          ? `${ack?.finished ? "" : draftBadge()}<textarea data-save="journal-ack" data-id="${e.id}">${esc(ack?.text || "")}</textarea><button class="soft" type="button" data-action="finish-ack" data-id="${e.id}">Mark finished</button>`
+          : ackVisible && ack?.text
+            ? `<div class="note"><strong>Brandon</strong>${ack.finished ? finishedBadge(ack) : ""}${nl(ack.text)}</div>`
             : ""
       }</article>`;
     })
     .join("");
-  return `<div class="view"><h1>Open journal</h1>${form}${rows || `<p class="quiet">Nothing here yet. A few honest sentences are enough.</p>`}</div>`;
+  return `<div class="view"><h1>Open journal</h1>${form}${rows || `<p class="quiet">Nothing finished here yet. A few honest sentences are enough.</p>`}</div>`;
 }
 
 function viewDates() {
@@ -790,7 +926,8 @@ function viewSettings() {
       <button class="text-btn" type="button" data-action="clear-secrets">Clear token and passphrase</button>
       <p class="quiet" data-sync-note>${esc(app.settings.lastSyncNote || "")}</p>
     </div>
-    ${profile() === "tabby" && app.settings.journalKey ? `<div class="card"><p class="kicker">Private journal backup</p><p class="small">Keep this somewhere only you have. It opens private entries on a new phone.</p><p style="word-break:break-all">${esc(app.settings.journalKey)}</p></div>` : ""}
+    ${app.settings.authorKey || app.settings.journalKey ? `<div class="card"><p class="kicker">Draft backup code</p><p class="small">Only you should keep this. It opens your unfinished writing on a new phone. It does not let the other person read drafts.</p><p style="word-break:break-all">${esc(app.settings.authorKey || app.settings.journalKey)}</p></div>` : ""}
+    <button class="ghost" type="button" data-action="enable-notify">Notify me when it’s my turn</button>
     <button class="list-btn" type="button" data-go="#/pair"><strong>Pair Tabby’s phone</strong></button>
     <button class="list-btn" type="button" data-go="#/about"><strong>About</strong></button>
   </div>`;
@@ -807,23 +944,9 @@ function viewAbout() {
 
 function viewPair() {
   if (!app.settings.token || !app.settings.passphrase) {
-    return `<div class="view"><h1>Pair Tabby’s phone</h1><p>Add the token and passphrase in Settings first. Then come back. The link keeps those secrets in the hidden part of the address, not the part servers store.</p></div>`;
+    return `<div class="view"><h1>Pair Tabby’s phone</h1><p>Add the token and passphrase in Settings first. The link keeps those secrets in the hidden part of the address, which a text can carry and a server does not store.</p></div>`;
   }
-  const link = pairLink();
-  let qr = "";
-  try {
-    const maker = qrcode(0, "M");
-    maker.addData(link);
-    maker.make();
-    qr = maker.createSvgTag({ cellSize: 4, margin: 2 });
-  } catch {
-    qr = "";
-  }
-  return `<div class="view"><h1>Pair Tabby’s phone</h1><p>Open this on her phone while you are together. The app will save the setup and then clear it from the address bar.</p>
-    <div class="card">${qr}</div>
-    <p class="small" style="word-break:break-all">${esc(link)}</p>
-    <button class="primary" type="button" data-action="copy-link" data-link="${esc(link)}">Copy link</button>
-    <p class="quiet">In the same room is gentler than a text message.</p></div>`;
+  return `<div class="view"><h1>Pair Tabby’s phone</h1><p>Text her the link. She can be anywhere. She opens it once.</p>${pairPanel()}</div>`;
 }
 
 function pairLink() {
@@ -887,6 +1010,53 @@ function onInput(event) {
     app.state.closure[`${el.dataset.field}At`] = Date.now();
     scheduleSave();
   }
+  if (el.dataset.save === "setup-token") app.settings.token = el.value.trim();
+  if (el.dataset.save === "setup-pass") app.settings.passphrase = el.value;
+  if (el.dataset.save === "journal-live") {
+    const entry = ensureJournalDraft(el.dataset.id);
+    el.dataset.id = entry.id;
+    entry.text = el.value;
+    entry.updatedAt = Date.now();
+    entry.finished = false;
+    scheduleSave();
+  }
+  if (el.dataset.save === "journal-share") {
+    const entry = ensureJournalDraft(el.dataset.id);
+    entry.share = el.checked;
+    entry.updatedAt = Date.now();
+    scheduleSave();
+  }
+  if (el.dataset.save === "journal-ack") {
+    const entry = app.state.journal.find((item) => item.id === el.dataset.id);
+    if (entry) {
+      entry.ack = { ...(entry.ack || {}), text: el.value, finished: false, by: "brandon", updatedAt: Date.now() };
+      entry.updatedAt = Date.now();
+      scheduleSave();
+    }
+  }
+  if (el.dataset.save === "ask-live") {
+    const q = ensureAskDraft(el.dataset.id);
+    el.dataset.id = q.id;
+    q.text = el.value;
+    q.updatedAt = Date.now();
+    q.finished = false;
+    q.status = "draft";
+    scheduleSave();
+  }
+  if (el.dataset.save === "ask-incident") {
+    const q = ensureAskDraft(el.dataset.id);
+    q.aboutIncident = el.checked;
+    q.updatedAt = Date.now();
+    scheduleSave();
+  }
+  if (el.dataset.save === "reply-live") {
+    const msg = ensureReplyDraft(el.dataset.id, el.dataset.mid);
+    el.dataset.mid = msg.id;
+    msg.text = el.value;
+    msg.updatedAt = Date.now();
+    msg.finished = false;
+    scheduleSave();
+  }
   if (el.dataset.save === "budget") {
     app.state.budget.limit = el.value;
     app.state.budget.updatedAt = Date.now();
@@ -897,7 +1067,13 @@ function onInput(event) {
 
 async function chooseProfile(name) {
   app.settings.profile = name;
-  if (name === "tabby" && !app.settings.journalKey) app.settings.journalKey = await crypto.generateJournalKey();
+  if (!app.settings.authorKey && !app.settings.journalKey) {
+    const key = await crypto.generateJournalKey();
+    app.settings.authorKey = key;
+    app.settings.journalKey = key;
+  } else if (!app.settings.authorKey) {
+    app.settings.authorKey = app.settings.journalKey;
+  }
   db.saveSettings(app.settings);
   if (!app.state.schedule.startISO) {
     app.state.schedule.startISO = logic.todayISO();
@@ -1005,14 +1181,37 @@ function handle(action, btn) {
     scheduleSave();
     render();
   }
-  if (action === "journal") addJournal();
-  if (action === "ack-journal") {
-    const entry = app.state.journal.find((item) => item.id === btn.dataset.id);
-    const text = document.querySelector(`[data-ack="${btn.dataset.id}"]`)?.value || "";
-    if (entry && text.trim()) entry.ack = { text, at: Date.now() };
-    scheduleSave();
+  if (action === "finish-journal") finishJournal(btn.dataset.id);
+  if (action === "finish-ack") finishAck(btn.dataset.id);
+  if (action === "finish-ask") finishAsk(btn.dataset.id);
+  if (action === "finish-reply") finishReply(btn.dataset.id, btn.dataset.mid);
+  if (action === "save-setup") {
+    app.settings.token = document.getElementById("setup-token")?.value?.trim() || app.settings.token;
+    app.settings.passphrase = document.getElementById("setup-pass")?.value || app.settings.passphrase;
+    if (app.settings.token && app.settings.passphrase && profile() === "tabby") app.settings.setupDone = true;
+    db.saveSettings(app.settings);
     render();
   }
+  if (action === "finish-setup") {
+    app.settings.setupDone = true;
+    db.saveSettings(app.settings);
+    go("#/today");
+    render();
+  }
+  if (action === "skip-setup") {
+    app.settings.skipSync = true;
+    app.settings.setupDone = true;
+    db.saveSettings(app.settings);
+    go("#/today");
+    render();
+  }
+  if (action === "paste-link") {
+    const raw = document.getElementById("setup-link")?.value || "";
+    if (!applySetupLink(raw)) app.banner = "That link did not include a token and passphrase.";
+    render();
+  }
+  if (action === "share-setup") shareSetup();
+  if (action === "enable-notify") enableNotify();
   if (action === "plan-date" || action === "plan-next") planDate(btn);
   if (action === "add-photo") addPhoto(btn.dataset.on || logic.todayISO());
   if (action === "month") shiftMonth(Number(btn.dataset.dir));
@@ -1083,6 +1282,17 @@ function handle(action, btn) {
   if (action === "sync") doSync();
   if (action === "copy-link") navigator.clipboard?.writeText(btn.dataset.link || pairLink());
   if (action === "add-more") addMore(btn.dataset.phase);
+  if (action === "finish-add") {
+    const seal = app.state.phaseSeals[btn.dataset.phase];
+    const add = seal?.additions?.find((item) => item.id === btn.dataset.id);
+    if (add?.text?.trim()) {
+      add.finished = true;
+      add.finishedAt = Date.now();
+      add.updatedAt = Date.now();
+      scheduleSave();
+      render();
+    }
+  }
   if (action === "filter-set") {
     app.settingFilter = app.settingFilter === btn.dataset.id ? "" : btn.dataset.id;
     render();
@@ -1128,45 +1338,86 @@ function markPresent(id, title) {
   render();
 }
 
-function addQuestion() {
-  const text = document.getElementById("ask-text")?.value?.trim();
-  if (!text) return;
-  app.state.questions.push({
-    id: logic.newId("q"),
-    text,
-    at: Date.now(),
-    aboutIncident: !!document.getElementById("ask-incident")?.checked,
-    status: "waiting",
-    updatedAt: Date.now(),
-    thread: [],
-  });
-  scheduleSave();
-  render();
+function ensureJournalDraft(id) {
+  let entry = (app.state.journal || []).find((item) => item.id === id);
+  if (!entry) {
+    entry = { id: logic.newId("j"), by: profile(), text: "", share: false, visibility: "private", finished: false, at: Date.now(), updatedAt: Date.now() };
+    app.state.journal.push(entry);
+  }
+  return entry;
 }
 
-function addThread(id, action) {
-  const q = app.state.questions.find((item) => item.id === id);
-  const text = document.getElementById("reply-text")?.value?.trim();
-  if (!q || !text) return;
+function ensureAskDraft(id) {
+  let q = (app.state.questions || []).find((item) => item.id === id);
+  if (!q) {
+    q = { id: logic.newId("q"), author: "tabby", text: "", aboutIncident: false, status: "draft", finished: false, at: Date.now(), updatedAt: Date.now(), thread: [] };
+    app.state.questions.push(q);
+  }
+  return q;
+}
+
+function ensureReplyDraft(qid, mid) {
+  const q = app.state.questions.find((item) => item.id === qid);
+  if (!q) return { id: mid || logic.newId("m"), text: "" };
   q.thread = q.thread || [];
-  q.thread.push({ id: logic.newId("m"), role: action === "reply" ? "answer" : "followup", text, at: Date.now(), updatedAt: Date.now() });
-  q.status = action === "reply" ? "answered" : q.status;
-  q.updatedAt = Date.now();
+  let msg = q.thread.find((item) => item.id === mid && !item.finished);
+  if (!msg) {
+    msg = {
+      id: logic.newId("m"),
+      author: profile(),
+      role: profile() === "brandon" ? "answer" : "followup",
+      text: "",
+      finished: false,
+      at: Date.now(),
+      updatedAt: Date.now(),
+    };
+    q.thread.push(msg);
+  }
+  return msg;
+}
+
+function finishJournal(id) {
+  const entry = (app.state.journal || []).find((item) => item.id === id) || (app.state.journal || []).find((item) => (item.by || "tabby") === profile() && !item.finished);
+  if (!entry?.text?.trim()) return;
+  entry.finished = true;
+  entry.finishedAt = Date.now();
+  entry.updatedAt = Date.now();
+  entry.visibility = entry.share ? "shared" : "private";
   scheduleSave();
   render();
 }
 
-function addJournal() {
-  const text = document.getElementById("journal-text")?.value?.trim();
-  if (!text) return;
-  const share = !!document.getElementById("journal-share")?.checked;
-  app.state.journal.push({
-    id: logic.newId("j"),
-    text,
-    visibility: share ? "shared" : "private",
-    at: Date.now(),
-    updatedAt: Date.now(),
-  });
+function finishAck(id) {
+  const entry = app.state.journal.find((item) => item.id === id);
+  if (!entry?.ack?.text?.trim()) return;
+  entry.ack.finished = true;
+  entry.ack.finishedAt = Date.now();
+  entry.ack.updatedAt = Date.now();
+  entry.updatedAt = Date.now();
+  scheduleSave();
+  render();
+}
+
+function finishAsk(id) {
+  const q = (app.state.questions || []).find((item) => item.id === id) || (app.state.questions || []).find((item) => !item.finished && (item.author || "tabby") === "tabby");
+  if (!q?.text?.trim()) return;
+  q.finished = true;
+  q.finishedAt = Date.now();
+  q.updatedAt = Date.now();
+  q.status = "waiting";
+  scheduleSave();
+  render();
+}
+
+function finishReply(qid, mid) {
+  const q = app.state.questions.find((item) => item.id === qid);
+  const msg = q?.thread?.find((item) => item.id === mid) || q?.thread?.find((item) => item.author === profile() && !item.finished);
+  if (!q || !msg?.text?.trim()) return;
+  msg.finished = true;
+  msg.finishedAt = Date.now();
+  msg.updatedAt = Date.now();
+  if (msg.role === "answer") q.status = "answered";
+  q.updatedAt = Date.now();
   scheduleSave();
   render();
 }
@@ -1289,7 +1540,7 @@ function addMore(phase) {
   if (!text) return;
   const seal = app.state.phaseSeals[phase] || { sealedAt: null, additions: [] };
   seal.additions = seal.additions || [];
-  seal.additions.push({ id: logic.newId("add"), text, at: Date.now(), updatedAt: Date.now() });
+  seal.additions.push({ id: logic.newId("add"), by: profile(), text, finished: false, at: Date.now(), updatedAt: Date.now() });
   app.state.phaseSeals[phase] = seal;
   scheduleSave();
   render();
@@ -1303,19 +1554,28 @@ async function saveSecrets() {
   render();
 }
 
-async function doSync() {
+async function doSync(opts = {}) {
+  if (app.syncing) return;
   if (!app.settings.token || !app.settings.passphrase) {
-    app.settings.lastSyncNote = "Add a token and passphrase to sync.";
+    app.settings.lastSyncNote = "On this phone only";
     db.saveSettings(app.settings);
-    render();
+    if (!opts.quiet) render();
     return;
   }
+  app.syncing = true;
   app.settings.lastSyncNote = "Syncing…";
-  render();
+  const note = document.querySelector("[data-sync-note]");
+  if (note) note.textContent = "Syncing…";
+  if (!opts.quiet) render();
   try {
     let key = null;
+    if (!app.settings.authorKey) {
+      app.settings.authorKey = app.settings.journalKey || (await crypto.generateJournalKey());
+      app.settings.journalKey = app.settings.authorKey;
+    }
+    const before = app.seenFinished || logic.visibleFinishedIds(app.state, profile());
+    const local = logic.stripForeignDrafts(await crypto.sealForWire(app.state, app.settings.authorKey, profile()), profile());
     const transport = sync.githubTransport(app.settings.token);
-    const local = profile() === "tabby" ? await crypto.sealForWire(app.state, app.settings.journalKey) : app.state;
     const result = await sync.syncNow({
       localState: local,
       transport,
@@ -1362,15 +1622,95 @@ async function doSync() {
         },
       },
     });
-    app.state = profile() === "tabby" ? await crypto.unsealForTabby(logic.normalizeState(result.state), app.settings.journalKey) : logic.normalizeState(result.state);
+    let next = await crypto.unsealForAuthor(logic.normalizeState(result.state), app.settings.authorKey, profile());
+    next = logic.stripForeignDrafts(next, profile());
+    if (!app.seenReady) {
+      app.seenFinished = logic.visibleFinishedIds(next, profile());
+      app.seenReady = true;
+    } else {
+      const notes = logic.describeNew(before, next, profile());
+      app.seenFinished = logic.visibleFinishedIds(next, profile());
+      if (notes[0]) {
+        app.banner = notes[0];
+        maybeNotify("Your turn", notes[0]);
+      }
+    }
+    app.state = next;
     await db.saveState(app.state);
     app.settings.lastSyncAt = Date.now();
-    app.settings.lastSyncNote = result.status === "up-to-date" ? "Already up to date" : "Synced";
+    const clock = new Date(app.settings.lastSyncAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    app.settings.lastSyncNote = result.status === "up-to-date" ? `Synced · ${clock}` : `Synced · ${clock}`;
   } catch (err) {
-    app.settings.lastSyncNote = err.code === "passphrase" ? err.message : "Saved on this phone. Sync will try again when it can.";
+    app.settings.lastSyncNote = err.code === "passphrase" ? err.message : "Saved on this phone. Will try again.";
   }
+  app.syncing = false;
   db.saveSettings(app.settings);
+  const typing = document.activeElement && ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
+  if (opts.quiet && typing) {
+    const live = document.querySelector("[data-sync-note]");
+    if (live) live.textContent = syncLabel();
+    return;
+  }
   render();
+}
+
+function applySetupLink(raw) {
+  const hash = raw.includes("#") ? raw.slice(raw.indexOf("#") + 1) : raw.trim();
+  const params = new URLSearchParams(hash);
+  if (!params.get("t") || !params.get("p")) return false;
+  app.settings.token = params.get("t");
+  app.settings.passphrase = params.get("p");
+  app.settings.profile = params.get("who") || profile() || "tabby";
+  app.settings.setupDone = true;
+  db.saveSettings(app.settings);
+  history.replaceState(null, "", location.pathname + location.search + "#/today");
+  return true;
+}
+
+async function shareSetup() {
+  const link = pairLink();
+  const text = `Tabby, open this once to set up Closer. Then you can delete this message.\n${link}`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: "Closer", text });
+      return;
+    } catch {
+      /* fall through to copy */
+    }
+  }
+  await navigator.clipboard?.writeText(text);
+  app.banner = "The setup message is copied. Paste it into a text.";
+  render();
+}
+
+async function enableNotify() {
+  if (!("Notification" in window)) return;
+  const permission = await Notification.requestPermission();
+  app.settings.notify = permission;
+  db.saveSettings(app.settings);
+}
+
+function maybeNotify(title, body) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const installed = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+  if (!installed && app.settings.notify !== "granted") return;
+  navigator.serviceWorker?.ready
+    .then((reg) => reg.showNotification(title, { body, icon: "icons/icon-192.png", tag: "closer-turn", renotify: true }))
+    .catch(() => {
+      try {
+        new Notification(title, { body, tag: "closer-turn" });
+      } catch {
+        /* ignore */
+      }
+    });
+}
+
+function schedulePoll() {
+  clearInterval(app.pollTimer);
+  const hidden = document.visibilityState === "hidden";
+  app.pollTimer = setInterval(() => {
+    if (app.settings.token && app.settings.passphrase) doSync({ quiet: true });
+  }, hidden ? 60000 : 30000);
 }
 
 document.body.addEventListener("click", (event) => {
@@ -1385,11 +1725,15 @@ document.body.addEventListener("input", onInput);
 document.body.addEventListener("change", onInput);
 window.addEventListener("hashchange", () => render());
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && app.settings.token) doSync();
+  schedulePoll();
+  if (document.visibilityState === "visible" && app.settings.token) doSync({ quiet: true });
 });
-setInterval(() => {
-  if (document.visibilityState === "visible" && app.settings.token) doSync();
-}, 45000);
+window.addEventListener("focus", () => {
+  if (app.settings.token) doSync({ quiet: true });
+});
+window.addEventListener("pageshow", () => {
+  if (app.settings.token) doSync({ quiet: true });
+});
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js").catch(() => {});
@@ -1405,8 +1749,17 @@ async function boot() {
     const rec = await db.loadPhoto(photo.id);
     if (rec?.plain) app.photoUrls[photo.id] = URL.createObjectURL(rec.plain);
   }
+  if ((app.settings.token && app.settings.passphrase) || app.settings.skipSync) app.settings.setupDone = app.settings.setupDone || true;
+  if (!app.settings.authorKey && app.settings.journalKey) app.settings.authorKey = app.settings.journalKey;
+  if (profile() && !app.settings.authorKey) {
+    app.settings.authorKey = await crypto.generateJournalKey();
+    app.settings.journalKey = app.settings.authorKey;
+    db.saveSettings(app.settings);
+  }
   routeFromHash();
   await render();
+  schedulePoll();
+  if (app.settings.token && app.settings.passphrase) doSync({ quiet: true });
 }
 
 boot();

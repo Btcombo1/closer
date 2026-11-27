@@ -100,77 +100,228 @@ export async function decryptBytes(bytes, key) {
   return new Uint8Array(plain);
 }
 
-function sealAnswer(answer, sealed) {
-  if (!answer) return answer;
-  if (answer.finished) {
-    const { text, updatedAt, finished, finishedAt } = answer;
-    return { text, updatedAt, finished: true, finishedAt: finishedAt || updatedAt };
-  }
-  if (!answer.text) return answer.private ? { private: true, iv: answer.iv, ct: answer.ct, updatedAt: answer.updatedAt, finished: false } : answer;
-  return { private: true, finished: false, updatedAt: answer.updatedAt, ...sealed };
+function withoutSecrets(record, sealed, extra = {}) {
+  return {
+    private: true,
+    finished: !!extra.finished,
+    finishedAt: extra.finishedAt || null,
+    updatedAt: record.updatedAt || null,
+    iv: sealed.iv,
+    ct: sealed.ct,
+    ...extra,
+  };
 }
 
-export async function sealForWire(state, journalKey) {
+async function sealAnswer(answer, key) {
+  if (!answer) return answer;
+  if (answer.finished) {
+    return {
+      text: answer.text,
+      updatedAt: answer.updatedAt,
+      finished: true,
+      finishedAt: answer.finishedAt || answer.updatedAt,
+    };
+  }
+  if (!answer.text) {
+    return answer.private ? { private: true, iv: answer.iv, ct: answer.ct, updatedAt: answer.updatedAt, finished: false } : answer;
+  }
+  return withoutSecrets(answer, await encryptString(answer.text, key), { finished: false });
+}
+
+async function sealJson(record, payload, key, extra) {
+  return withoutSecrets(record, await encryptString(JSON.stringify(payload), key), extra);
+}
+
+export async function sealForWire(state, authorKey, author = "tabby") {
   const copy = structuredClone(state);
-  if (!journalKey) return copy;
+  if (!authorKey) return copy;
   for (const day of Object.values(copy.days || {})) {
-    if (day?.tabby && !day.tabby.finished && day.tabby.text) {
-      day.tabby = sealAnswer(day.tabby, await encryptString(day.tabby.text, journalKey));
+    for (const who of ["tabby", "brandon"]) {
+      if (who === author && day?.[who]) day[who] = await sealAnswer(day[who], authorKey);
+      else if (day?.[who] && !day[who].finished && day[who].text) {
+        delete day[who].text;
+        day[who].private = true;
+      }
     }
     if (day?.parts) {
       for (const part of Object.values(day.parts)) {
-        if (part?.tabby && !part.tabby.finished && part.tabby.text) {
-          part.tabby = sealAnswer(part.tabby, await encryptString(part.tabby.text, journalKey));
+        for (const who of ["tabby", "brandon"]) {
+          if (who === author && part?.[who]) part[who] = await sealAnswer(part[who], authorKey);
+          else if (part?.[who] && !part[who].finished && part[who].text) {
+            delete part[who].text;
+            part[who].private = true;
+          }
         }
       }
     }
-  }
-  const journal = [];
-  for (const entry of copy.journal || []) {
-    if (entry.visibility === "private" && entry.text) {
-      const sealed = await encryptString(JSON.stringify({ text: entry.text, at: entry.at }), journalKey);
-      journal.push({ id: entry.id, visibility: "private", updatedAt: entry.updatedAt, at: entry.at, ...sealed });
-    } else if (entry.visibility === "private" && entry.ct) {
-      journal.push({ id: entry.id, visibility: "private", updatedAt: entry.updatedAt, at: entry.at, iv: entry.iv, ct: entry.ct });
-    } else {
-      journal.push(entry);
+    if (day?.exercise?.[author] && !day.exercise[author].finished && (day.exercise[author].helping || day.exercise[author].criticism)) {
+      const side = day.exercise[author];
+      day.exercise[author] = await sealJson(side, { helping: side.helping || "", criticism: side.criticism || "" }, authorKey, { finished: false });
     }
   }
-  copy.journal = journal;
+  copy.journal = await Promise.all((copy.journal || []).map((entry) => sealJournal(entry, author, authorKey)));
+  copy.questions = await Promise.all((copy.questions || []).map((q) => sealQuestion(q, author, authorKey)));
+  for (const seal of Object.values(copy.phaseSeals || {})) {
+    seal.additions = await Promise.all((seal.additions || []).map((add) => sealAddition(add, author, authorKey)));
+  }
+  if (author === "brandon") {
+    copy.affirmations = await Promise.all((copy.affirmations || []).map((item) => sealAffirmation(item, authorKey)));
+  } else {
+    copy.affirmations = (copy.affirmations || []).map((item) => {
+      if (!item.ready && item.text) {
+        const { text, ...rest } = item;
+        return { ...rest, private: true };
+      }
+      return item;
+    });
+  }
+  return copy;
+}
+
+async function sealJournal(entry, author, key) {
+  const owner = entry.by || "tabby";
+  if (owner !== author) {
+    if ((!entry.finished || entry.visibility === "private") && entry.text) {
+      const { text, ...rest } = entry;
+      return { ...rest, private: true };
+    }
+    if (entry.ack && !entry.ack.finished && entry.ack.text && author !== "brandon") {
+      const { text, ...rest } = entry.ack;
+      return { ...entry, ack: { ...rest, private: true } };
+    }
+    return entry;
+  }
+  let next = entry;
+  if (!entry.finished && entry.text) {
+    next = await sealJson(entry, { text: entry.text, at: entry.at, share: !!entry.share }, key, {
+      finished: false,
+      id: entry.id,
+      by: owner,
+    });
+  } else if (entry.finished && entry.visibility !== "shared" && entry.text) {
+    next = await sealJson(entry, { text: entry.text, at: entry.at }, key, {
+      finished: true,
+      finishedAt: entry.finishedAt,
+      id: entry.id,
+      by: owner,
+      visibility: "private",
+    });
+  }
+  if (author === "brandon" && next.ack && !next.ack.finished && next.ack.text) {
+    const ack = next.ack;
+    next = { ...next, ack: await sealJson(ack, { text: ack.text }, key, { finished: false, by: "brandon" }) };
+  }
+  return next;
+}
+
+async function sealQuestion(q, author, key) {
+  const owner = q.author || q.by || "tabby";
+  let next = q;
+  if (owner === author && !q.finished && q.text) {
+    next = await sealJson(q, { text: q.text, aboutIncident: !!q.aboutIncident, at: q.at }, key, {
+      finished: false,
+      id: q.id,
+      author: owner,
+      status: "draft",
+    });
+  } else if (owner !== author && !q.finished && q.text) {
+    const { text, ...rest } = q;
+    next = { ...rest, private: true };
+  }
+  next.thread = await Promise.all((q.thread || next.thread || []).map((m) => sealMessage(m, author, key)));
+  return next;
+}
+
+async function sealMessage(m, author, key) {
+  const owner = m.author || (m.role === "answer" ? "brandon" : "tabby");
+  if (owner === author && !m.finished && m.text) {
+    return sealJson(m, { text: m.text, role: m.role || "followup" }, key, {
+      finished: false,
+      id: m.id,
+      author: owner,
+      role: m.role || "followup",
+    });
+  }
+  if (owner !== author && !m.finished && m.text) {
+    const { text, ...rest } = m;
+    return { ...rest, private: true };
+  }
+  return m;
+}
+
+async function sealAddition(add, author, key) {
+  const owner = add.by || "tabby";
+  if (owner === author && !add.finished && add.text) {
+    return sealJson(add, { text: add.text }, key, { finished: false, id: add.id, by: owner, at: add.at });
+  }
+  if (owner !== author && !add.finished && add.text) {
+    const { text, ...rest } = add;
+    return { ...rest, private: true };
+  }
+  return add;
+}
+
+async function sealAffirmation(item, key) {
+  if (item.ready || !item.text) return item.ready ? { ...item, private: false } : item;
+  return sealJson(item, { text: item.text }, key, { finished: false, id: item.id, ready: false });
+}
+
+async function openSecret(record, key, parseJson) {
+  if (!record?.private || !record.ct || record.text || record.helping) return record;
+  try {
+    const raw = await decryptString(record, key);
+    const data = parseJson ? JSON.parse(raw) : { text: raw };
+    const { iv, ct, private: _p, locked, ...rest } = record;
+    return { ...rest, ...data, private: false };
+  } catch {
+    return { ...record, locked: true };
+  }
+}
+
+export async function unsealForAuthor(state, authorKey, author = "tabby") {
+  if (!authorKey) return state;
+  const copy = structuredClone(state);
+  for (const day of Object.values(copy.days || {})) {
+    if (day?.[author]) day[author] = await openSecret(day[author], authorKey, false);
+    if (day?.parts) {
+      for (const part of Object.values(day.parts)) {
+        if (part?.[author]) part[author] = await openSecret(part[author], authorKey, false);
+      }
+    }
+    if (day?.exercise?.[author]?.private) day.exercise[author] = await openSecret(day.exercise[author], authorKey, true);
+  }
+  copy.journal = await Promise.all(
+    (copy.journal || []).map(async (entry) => {
+      const owner = entry.by || "tabby";
+      let next = owner === author ? await openSecret(entry, authorKey, true) : entry;
+      if (author === "brandon" && next.ack?.private) next = { ...next, ack: await openSecret(next.ack, authorKey, true) };
+      return next;
+    })
+  );
+  copy.questions = await Promise.all(
+    (copy.questions || []).map(async (q) => {
+      const owner = q.author || q.by || "tabby";
+      const next = owner === author ? await openSecret(q, authorKey, true) : q;
+      next.thread = await Promise.all(
+        (q.thread || []).map(async (m) => {
+          const ma = m.author || (m.role === "answer" ? "brandon" : "tabby");
+          return ma === author ? openSecret(m, authorKey, true) : m;
+        })
+      );
+      return next;
+    })
+  );
+  for (const seal of Object.values(copy.phaseSeals || {})) {
+    seal.additions = await Promise.all(
+      (seal.additions || []).map(async (add) => ((add.by || "tabby") === author ? openSecret(add, authorKey, true) : add))
+    );
+  }
+  if (author === "brandon") {
+    copy.affirmations = await Promise.all((copy.affirmations || []).map((item) => (item.private ? openSecret(item, authorKey, true) : item)));
+  }
   return copy;
 }
 
 export async function unsealForTabby(state, journalKey) {
-  if (!journalKey) return state;
-  const copy = structuredClone(state);
-  const openAnswer = async (answer) => {
-    if (!answer?.private || !answer.ct || answer.text) return answer;
-    try {
-      const text = await decryptString(answer, journalKey);
-      return { text, updatedAt: answer.updatedAt, finished: false };
-    } catch {
-      return { ...answer, locked: true };
-    }
-  };
-  for (const day of Object.values(copy.days || {})) {
-    if (day?.tabby) day.tabby = await openAnswer(day.tabby);
-    if (day?.parts) {
-      for (const part of Object.values(day.parts)) {
-        if (part?.tabby) part.tabby = await openAnswer(part.tabby);
-      }
-    }
-  }
-  const journal = [];
-  for (const entry of copy.journal || []) {
-    if (entry.visibility === "private" && entry.ct && !entry.text) {
-      try {
-        const parsed = JSON.parse(await decryptString(entry, journalKey));
-        journal.push({ ...entry, text: parsed.text, at: parsed.at || entry.at, iv: undefined, ct: undefined });
-      } catch {
-        journal.push({ ...entry, locked: true });
-      }
-    } else journal.push(entry);
-  }
-  copy.journal = journal;
-  return copy;
+  return unsealForAuthor(state, journalKey, "tabby");
 }

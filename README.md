@@ -28,7 +28,7 @@ You can use Closer on one phone with no setup. To share answers between phones:
 6. Under **Permissions**, open **Repository permissions**, and set **Contents** to **Read and write**. Leave everything else alone.
 7. Generate the token and copy it. GitHub shows it only once.
 8. On Brandon’s phone, open Closer, go to **More**, then **Settings**. Paste the token. Then choose a passphrase together. The passphrase is not the GitHub token. It is a sentence only the two of you know. It scrambles the words before they are saved.
-9. Tap **Pair Tabby’s phone**. Let her scan the code while you are in the same room. The secrets sit in the hidden part of the link. The app clears them from the address bar after her phone saves them.
+9. Tap **Text the setup link** and send it to Tabby. You do not have to be together. She opens it once. The secrets sit in the hidden part of the link, and the app clears them from the address bar. Delete the text after her phone is set up.
 
 If a token is ever pasted into a text message by mistake, delete that token on GitHub, make a new one, and update both phones.
 
@@ -38,7 +38,9 @@ Answers stay on each phone first. When there is a signal, **Sync now** (or leavi
 
 One step shows at a time. Tabby writes first on her steps, and Brandon cannot read that writing until she says it is finished. Then he answers. His steps go the other way. You can pause any day. Pausing is not a failure, and there is no streak.
 
-There is a calming minute and a short verse in the ESV before the words. When the step is done, Closer asks you to put the phone down and spend five minutes together.
+There is a calming minute and a short verse in the ESV before the words. Anything still in progress is a draft. It autosaves, and it is scrambled so the other phone cannot read it, even after a sync. Tap **Mark finished** when you want them to see it. That copy is read-only and timestamped, and only then can they respond.
+
+When the step is done, Closer asks you to put the phone down and spend five minutes together. If the app is installed on your home screen, it can notify you when it is your turn. Open the app, or leave it in the background, and it checks for finished words every half minute. The partner card only says things like “Tabby is writing” or “Waiting on you.” It never shows a draft.
 
 **Be present** is a shared goal for both of you: one small phone-free challenge a day. A missed day is just a missed day.
 

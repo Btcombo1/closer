@@ -73,7 +73,11 @@ img { max-width: 100%; }
 .icon-btn, .text-btn {
   border: 0; background: transparent; color: var(--rose); font-weight: 600; padding: 8px 2px;
 }
-.sync-note { color: var(--muted); font-size: 0.78rem; }
+.sync-note { color: var(--muted); font-size: 0.78rem; border: 0; background: transparent; text-align: right; }
+.banner { background: var(--rose-soft); border-radius: 16px; padding: 12px 14px; margin: 8px 0 12px; }
+.banner p { margin: 4px 0 0; }
+.nav button { position: relative; }
+.nav-dot { position: absolute; top: 4px; right: 18px; width: 8px; height: 8px; border-radius: 99px; background: var(--rose); display: block; }
 
 h1, h2, h3 { font-family: var(--serif); font-weight: 500; letter-spacing: -0.03em; margin: 0; }
 h1 { font-size: 2.05rem; line-height: 1.15; }

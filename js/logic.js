@@ -238,7 +238,7 @@ function mergeExercise(a, b) {
   if (!a && !b) return null;
   const out = { tabby: null, brandon: null, ratings: { tabby: null, brandon: null } };
   for (const who of ["tabby", "brandon"]) {
-    out[who] = newer(a?.[who], b?.[who]);
+    out[who] = mergeAnswer(a?.[who], b?.[who]);
     out.ratings[who] = newer(a?.ratings?.[who], b?.ratings?.[who]);
   }
   return out;
@@ -248,7 +248,7 @@ function mergeSeal(a, b) {
   if (!a) return b || null;
   if (!b) return a;
   const sealedAt = a.sealedAt || b.sealedAt || null;
-  const additions = unionById(a.additions || [], b.additions || [], (x, y) => newer(x, y));
+  const additions = unionById(a.additions || [], b.additions || [], (x, y) => mergeAnswer(x, y));
   return { sealedAt, additions };
 }
 
@@ -284,13 +284,17 @@ export function mergeState(local, remote) {
     projects: unionById(a.projects, b.projects, (x, y) => newer(x, y)).filter((p) => !p.removed),
     budget: newer(a.budget, b.budget),
     questions: unionById(a.questions, b.questions, (x, y) => {
-      const base = newer(x, y);
-      base.thread = unionById(x.thread || [], y.thread || [], (m, n) => newer(m, n));
+      const base = mergeAnswer(x, y);
+      base.thread = unionById(x.thread || [], y.thread || [], (m, n) => mergeAnswer(m, n));
       if (x.status === "closed" || y.status === "closed") base.status = "closed";
       else if (x.status === "answered" || y.status === "answered") base.status = base.status || "answered";
       return base;
     }),
-    journal: unionById(a.journal, b.journal, (x, y) => newer(x, y)).filter((j) => !j.removed),
+    journal: unionById(a.journal, b.journal, (x, y) => {
+      const base = mergeAnswer(x, y);
+      if (x.ack || y.ack) base.ack = mergeAnswer(x.ack, y.ack);
+      return base;
+    }).filter((j) => !j.removed),
     affirmations: unionById(a.affirmations, b.affirmations, (x, y) => newer(x, y)),
     closure: mergeClosure(a.closure, b.closure),
     schedule: newer(
@@ -413,8 +417,145 @@ export function answerView(answer, viewer, author) {
   const mine = viewer === author;
   if (answer.private && !mine) return { state: "private" };
   if (!answer.finished && !mine) return { state: "hidden" };
-  if (answer.private && mine && answer.text == null) return { state: "locked" };
+  if ((answer.private || answer.locked) && mine && answer.text == null && answer.helping == null) return { state: "locked" };
   return { state: "visible", text: answer.text || "" };
+}
+
+export function writingOwner(item, fallback = "tabby") {
+  return item?.author || item?.by || fallback;
+}
+
+export function canRead(item, viewer, author) {
+  if (!item) return false;
+  if (viewer === author) return item.text != null || item.locked || item.private || item.finished;
+  if (!item.finished || item.private || item.visibility === "private") return false;
+  return item.text != null;
+}
+
+export function partnerStatus({ def, record, viewer, state = {} }) {
+  const partner = viewer === "tabby" ? "brandon" : "tabby";
+  const name = partner === "tabby" ? "Tabby" : "Brandon";
+  const answer = record?.[partner];
+  const writingStep = !!(answer && !answer.finished && (answer.private || answer.ct || answer.text));
+  const writingQuestion = (state.questions || []).some((q) => {
+    const owner = writingOwner(q, "tabby");
+    if (owner === partner && !q.finished && (q.private || q.ct || q.text)) return true;
+    return (q.thread || []).some((m) => {
+      const ma = m.author || (m.role === "answer" ? "brandon" : "tabby");
+      return ma === partner && !m.finished && (m.private || m.ct || m.text);
+    });
+  });
+  if (writingStep) {
+    return { code: "writing", label: `${name} is writing`, detail: "You will see it when they tap Mark finished." };
+  }
+  if (writingQuestion) {
+    return { code: "writing", label: `${name} is writing`, detail: "Something in Ask or the journal is still only on their phone." };
+  }
+  if (!def) return { code: "idle", label: "No step open", detail: "" };
+  const turn = turnState(def, record, viewer, state);
+  if (turn.code === "your-turn") return { code: "your-turn", label: "Waiting on you", detail: "Your turn on this step." };
+  if (turn.code === "waiting") return { code: "waiting", label: turn.label, detail: "Nothing to read until they mark it finished." };
+  if (turn.code === "paused") return { code: "paused", label: "Paused", detail: "No penalty. Come back when it feels kinder." };
+  if (turn.code === "done") return { code: "done", label: "This step is kept", detail: "" };
+  return { code: "waiting", label: `Waiting on ${name}`, detail: "" };
+}
+
+export function visibleFinishedIds(state, viewer) {
+  const ids = [];
+  for (const [dayId, day] of Object.entries(state?.days || {})) {
+    for (const who of ["tabby", "brandon"]) {
+      if (who !== viewer && day?.[who]?.finished) ids.push(`day:${dayId}:${who}:${day[who].finishedAt || 0}`);
+    }
+  }
+  for (const q of state?.questions || []) {
+    const owner = writingOwner(q, "tabby");
+    if (owner !== viewer && q.finished && !q.private) ids.push(`q:${q.id}:${q.finishedAt || 0}`);
+    for (const m of q.thread || []) {
+      const ma = m.author || (m.role === "answer" ? "brandon" : "tabby");
+      if (ma !== viewer && m.finished && !m.private) ids.push(`m:${m.id}:${m.finishedAt || 0}`);
+    }
+  }
+  for (const entry of state?.journal || []) {
+    const owner = entry.by || "tabby";
+    if (owner !== viewer && entry.finished && entry.visibility === "shared" && !entry.private) {
+      ids.push(`j:${entry.id}:${entry.finishedAt || 0}`);
+    }
+  }
+  return ids.sort();
+}
+
+export function describeNew(prevIds, state, viewer) {
+  const prev = new Set(prevIds || []);
+  const name = viewer === "tabby" ? "Brandon" : "Tabby";
+  return visibleFinishedIds(state, viewer)
+    .filter((id) => !prev.has(id))
+    .map((id) => {
+      if (id.startsWith("q:")) return `${name} sent you a question.`;
+      if (id.startsWith("m:")) return `${name} marked a reply finished.`;
+      if (id.startsWith("j:")) return `${name} shared a journal entry.`;
+      return `${name} marked something finished. Your turn.`;
+    });
+}
+
+export function stripForeignDrafts(state, viewer) {
+  const copy = structuredClone(normalizeState(state));
+  for (const day of Object.values(copy.days || {})) {
+    for (const who of ["tabby", "brandon"]) {
+      if (who !== viewer && day[who] && !day[who].finished && day[who].text) {
+        delete day[who].text;
+        day[who].private = true;
+      }
+      const side = day.exercise?.[who];
+      if (who !== viewer && side && !side.finished && (side.helping || side.criticism)) {
+        delete side.helping;
+        delete side.criticism;
+        side.private = true;
+      }
+    }
+    for (const part of Object.values(day.parts || {})) {
+      for (const who of ["tabby", "brandon"]) {
+        if (who !== viewer && part[who] && !part[who].finished && part[who].text) {
+          delete part[who].text;
+          part[who].private = true;
+        }
+      }
+    }
+  }
+  copy.journal = (copy.journal || []).map((entry) => {
+    const owner = entry.by || "tabby";
+    if (owner !== viewer && entry.text && (!entry.finished || entry.visibility === "private")) {
+      const { text, ...rest } = entry;
+      return { ...rest, private: true };
+    }
+    return entry;
+  });
+  copy.questions = (copy.questions || []).map((q) => {
+    const owner = writingOwner(q, "tabby");
+    let next = q;
+    if (owner !== viewer && !q.finished && q.text) {
+      const { text, ...rest } = q;
+      next = { ...rest, private: true };
+    }
+    next.thread = (q.thread || []).map((m) => {
+      const ma = m.author || (m.role === "answer" ? "brandon" : "tabby");
+      if (ma !== viewer && !m.finished && m.text) {
+        const { text, ...rest } = m;
+        return { ...rest, private: true };
+      }
+      return m;
+    });
+    return next;
+  });
+  for (const seal of Object.values(copy.phaseSeals || {})) {
+    seal.additions = (seal.additions || []).map((add) => {
+      if ((add.by || "tabby") !== viewer && !add.finished && add.text) {
+        const { text, ...rest } = add;
+        return { ...rest, private: true };
+      }
+      return add;
+    });
+  }
+  return copy;
 }
 
 export function turnState(def, record, viewer, state = {}) {
