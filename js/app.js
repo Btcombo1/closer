@@ -588,7 +588,8 @@ function viewDates() {
       </article>`;
     })
     .join("");
-  const library = ideas
+  const shown = ideas.filter((idea) => !app.settingFilter || idea.setting === app.settingFilter);
+  const library = shown
     .slice(0, 12)
     .map(
       (idea) =>
@@ -1335,7 +1336,15 @@ async function doSync() {
           map[id] = sha;
           await db.savePhotoShas(map);
         },
-        getCipher: async (id) => (await db.loadPhoto(id))?.cipher || null,
+        getCipher: async (id) => {
+          const rec = (await db.loadPhoto(id)) || {};
+          if (rec.cipher) return rec.cipher;
+          if (!rec.plain || !app.settings.passphrase || !app.settings.salt) return null;
+          const key = await crypto.deriveKey(app.settings.passphrase, crypto.b64ToBytes(app.settings.salt));
+          const cipher = await crypto.encryptBytes(new Uint8Array(await rec.plain.arrayBuffer()), key);
+          await db.savePhoto(id, { ...rec, cipher });
+          return cipher;
+        },
         setCipher: async (id, bytes) => {
           const prev = (await db.loadPhoto(id)) || {};
           await db.savePhoto(id, { ...prev, cipher: bytes });
