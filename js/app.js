@@ -7,7 +7,7 @@ import { allIdeas, ideaById, LENGTHS, SETTINGS, WHEN_LABEL, LEADER_NOTE } from "
 import { allIdeas as justIdeas, INTRO as JUST_INTRO, PROMPTS as JUST_PROMPTS, LIST as JUST_LIST } from "./justus.js";
 import { INTRO as BE_INTRO, challengeFor, reconnectFor } from "./presence.js";
 
-const APP_VERSION = "11";
+const APP_VERSION = "12";
 
 const app = {
   settings: db.loadSettings(),
@@ -104,6 +104,7 @@ function otherName() {
 async function render() {
   const tick = ++renderTick;
   routeFromHash();
+  if (new URLSearchParams(location.search).get("preview-update") === "1") app.updateReady = true;
   const root = document.getElementById("app");
   const onboard = !profile();
   const setup = !onboard && !app.settings.setupDone && !app.settings.skipSync;
@@ -877,14 +878,19 @@ function viewCalendar() {
   </div>`;
 }
 
+function editingEvent() {
+  return (app.state.events || []).find((item) => item.id === app.editingEvent && !item.removed);
+}
+
 function eventForm() {
   if (app.composer !== "event") return "";
-  const iso = app.composerDate || logic.todayISO();
-  return `<div class="card"><p class="kicker">Add to the calendar</p>
-    <label>Title<input id="event-title" type="text" autocomplete="off"></label>
+  const existing = editingEvent();
+  const iso = existing?.iso || app.composerDate || logic.todayISO();
+  return `<div class="card"><p class="kicker">${existing ? "Edit" : "Add to the calendar"}</p>
+    <label>Title<input id="event-title" type="text" autocomplete="off" value="${esc(existing?.title || "")}"></label>
     <label>Date<input id="event-date" type="date" value="${esc(iso)}"></label>
-    <label>Time, if you want<input id="event-time" type="time"></label>
-    <label>Note, if you want<textarea id="event-note"></textarea></label>
+    <label>Time, if you want<input id="event-time" type="time" value="${esc(existing?.time || "")}"></label>
+    <label>Note, if you want<textarea id="event-note">${esc(existing?.note || "")}</textarea></label>
     <p id="form-error" class="form-error" role="alert"></p>
     <div class="composer-actions">
       <button class="primary full" type="button" data-action="save-event">Save</button>
@@ -930,7 +936,7 @@ function viewCalDay(iso) {
   const items = logic.calendarItems(iso, app.state, DAYS);
   const photos = (app.state.photos || []).filter((p) => p.on === iso || items.some((i) => i.type === "photo" && i.id === p.id));
   const list = items
-    .map((item) => `<article class="card"><p class="kicker">${esc(item.type)}</p><h2>${esc(item.title)}</h2><p>${esc(item.detail || "")}</p></article>`)
+    .map((item) => `<article class="card"><p class="kicker">${esc(item.type)}</p><h2>${esc(item.title)}</h2>${item.type === "event" ? `<button class="ghost" type="button" data-action="edit-event" data-id="${item.id}">Edit</button><button class="text-btn" type="button" data-action="delete-event" data-id="${item.id}">Delete</button>` : ""}<p>${esc(item.detail || "")}</p></article>`)
     .join("");
   const shots = photos
     .map((p) => `<figure class="shot">${app.photoUrls[p.id] ? `<img alt="" src="${app.photoUrls[p.id]}">` : ""}<p>${esc(p.caption || "Photo")}</p></figure>`)
@@ -1205,6 +1211,12 @@ function runAction(action, btn) {
 }
 
 function onClick(event) {
+  if (app.swallowClick) {
+    app.swallowClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   const btn = event.target.closest("[data-go],[data-profile],[data-action]");
   if (!btn) return;
   if (btn.dataset.go) {
@@ -1216,10 +1228,6 @@ function onClick(event) {
     return;
   }
   const action = btn.dataset.action;
-  if (action && SAVE_ACTIONS.has(action) && app.swallowClick === btn) {
-    app.swallowClick = null;
-    return;
-  }
   if (action) runAction(action, btn);
 }
 
@@ -1249,9 +1257,12 @@ function onInput(event) {
     scheduleSave();
   }
   if (el.dataset.save === "closure") {
+    const before = logic.currentIndex(app.state, DAYS);
     app.state.closure[el.dataset.field] = el.value;
     app.state.closure[`${el.dataset.field}At`] = Date.now();
+    markEdit();
     scheduleSave();
+    if (logic.currentIndex(app.state, DAYS) !== before) render();
   }
   if (el.dataset.save === "setup-token") app.settings.token = el.value.trim();
   if (el.dataset.save === "setup-pass") app.settings.passphrase = el.value;
@@ -1459,6 +1470,7 @@ function handle(action, btn) {
   if (action === "add-photo") addPhoto(btn.dataset.on || logic.todayISO());
   if (action === "month") shiftMonth(Number(btn.dataset.dir));
   if (action === "open-add") {
+    app.editingEvent = "";
     app.composer = "event";
     app.composerDate = btn.dataset.date || logic.todayISO();
     render();
@@ -1469,6 +1481,8 @@ function handle(action, btn) {
     render();
   }
   if (action === "save-event") saveEvent();
+  if (action === "edit-event") editEvent(btn.dataset.id);
+  if (action === "delete-event") deleteEvent(btn.dataset.id);
   if (action === "open-shift") {
     app.composer = "shift";
     app.shiftDraft = { weekdays: [], start: "", end: "", from: logic.DAY_SHIFT_FROM, until: "", id: "" };
@@ -1996,16 +2010,37 @@ function saveEvent() {
   const iso = readIso("event-date", app.composerDate || logic.todayISO());
   if (!title) return showFormError("Add a title.");
   if (!iso) return showFormError("Add a date.");
+  const time = readClock("event-time");
+  const note = fieldValue("event-note").trim();
+  const now = Date.now();
   app.state.events = app.state.events || [];
-  app.state.events.push({
-    id: logic.newId("e"),
-    title,
-    iso,
-    time: readClock("event-time"),
-    note: fieldValue("event-note").trim(),
-    by: profile(),
-    updatedAt: Date.now(),
-  });
+  if (app.editingEvent) {
+    const found = app.state.events.find((item) => item.id === app.editingEvent);
+    if (found) Object.assign(found, { title, iso, time, note, updatedAt: now });
+  } else {
+    app.state.events.push({ id: logic.newId("e"), title, iso, time, note, by: profile(), updatedAt: now });
+  }
+  app.editingEvent = "";
+  app.composer = "";
+  scheduleSave();
+  render();
+}
+
+function editEvent(id) {
+  const found = (app.state.events || []).find((item) => item.id === id && !item.removed);
+  if (!found) return;
+  app.editingEvent = id;
+  app.composer = "event";
+  app.composerDate = found.iso;
+  render();
+}
+
+function deleteEvent(id) {
+  const found = (app.state.events || []).find((item) => item.id === id);
+  if (!found) return;
+  found.removed = true;
+  found.updatedAt = Date.now();
+  app.editingEvent = "";
   app.composer = "";
   scheduleSave();
   render();
@@ -2307,6 +2342,7 @@ async function performSync(opts = {}) {
   }
   app.syncing = true;
   const seqAtStart = app.editSeq || 0;
+  const dayBefore = DAYS[logic.currentIndex(app.state, DAYS)]?.id || "";
   app.settings.lastSyncNote = "Syncing…";
   const note = document.querySelector("[data-sync-note]");
   if (note) note.textContent = "Syncing…";
@@ -2405,7 +2441,8 @@ async function performSync(opts = {}) {
   const active = document.activeElement;
   const typing = active && (active.tagName === "TEXTAREA" || (active.tagName === "INPUT" && active.type !== "checkbox"));
   const checking = active && active.tagName === "INPUT" && active.type === "checkbox";
-  if (opts.quiet && (typing || checking)) {
+  const dayAfter = DAYS[logic.currentIndex(app.state, DAYS)]?.id || "";
+  if (opts.quiet && (typing || checking) && dayBefore === dayAfter) {
     const live = document.querySelector("[data-sync-note]");
     if (live) live.textContent = syncLabel();
   } else {
@@ -2477,7 +2514,7 @@ document.body.addEventListener("pointerdown", (event) => {
   const btn = event.target.closest("button[data-action]");
   if (!btn || !SAVE_ACTIONS.has(btn.dataset.action)) return;
   event.preventDefault();
-  app.swallowClick = btn;
+  app.swallowClick = true;
   runAction(btn.dataset.action, btn);
 }, true);
 
