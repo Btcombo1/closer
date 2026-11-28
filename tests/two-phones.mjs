@@ -261,7 +261,7 @@ try {
   await press(tabby.page.locator("[data-action='open-just']"));
   await press(tabby.page.locator("[data-action='ynm']"));
   await tabby.page.goto("http://127.0.0.1:8777/#/settings");
-  await tabby.page.getByText("Version 9").waitFor({ timeout: 10000 });
+  await tabby.page.getByText("Version 10").waitFor({ timeout: 10000 });
   await tabby.page.locator("#sync-key").fill("  Bearer github_pat_replacedkey123456 ");
   await press(tabby.page.locator("[data-action='save-sync-key']"));
   await tabby.page.waitForFunction(() => (document.querySelector("[data-sync-note]")?.textContent || "").startsWith("Synced"), null, { timeout: 20000 });

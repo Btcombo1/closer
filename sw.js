@@ -1,4 +1,4 @@
-const CACHE = "closer-v9";
+const CACHE = "closer-v10";
 const ASSETS = [
   "./",
   "./index.html",

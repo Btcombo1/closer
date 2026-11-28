@@ -7,7 +7,7 @@ import { allIdeas, ideaById, LENGTHS, SETTINGS, WHEN_LABEL, LEADER_NOTE } from "
 import { allIdeas as justIdeas, INTRO as JUST_INTRO, PROMPTS as JUST_PROMPTS, LIST as JUST_LIST } from "./justus.js";
 import { INTRO as BE_INTRO, challengeFor, reconnectFor } from "./presence.js";
 
-const APP_VERSION = "9";
+const APP_VERSION = "10";
 
 const app = {
   settings: db.loadSettings(),
@@ -278,6 +278,8 @@ async function body() {
       return viewDates();
     case "calendar":
       return app.param ? viewCalDay(app.param) : viewCalendar();
+    case "goals":
+      return viewGoals();
     case "album":
       return viewAlbum();
     case "presence":
@@ -345,7 +347,7 @@ function nextRequired(def) {
 function keptView(def) {
   const next = nextRequired(def);
   return `<div class="view" data-day="${def.id}">
-    <h1>Step kept.</h1>
+    ${goalsLink()}<h1>Step kept.</h1>
     <p class="lede">Next step opens tomorrow.</p>
     ${next ? `<p>${esc(next.title)}</p>` : ""}
     <button class="primary full" type="button" data-action="continue" data-day="${def.id}">Start the next step now</button>
@@ -364,13 +366,13 @@ function stepInner(def, rec) {
     return `<h1>${esc(def.title)}</h1><p class="lede">This step is paused. Come back when you want.</p><button class="primary full" type="button" data-action="resume" data-day="${def.id}">Come back</button>${leftCard(def, record)}`;
   }
   if (turn.code === "waiting") {
-    return `<h1>You're done for today.</h1><p class="lede">Waiting on ${esc(otherName())}.</p>${leftCard(def, record)}`;
+    return `${goalsLink()}<h1>You're done for today.</h1><p class="lede">Waiting on ${esc(otherName())}.</p>${leftCard(def, record)}`;
   }
   if (turn.code === "done" || logic.isDayComplete(record, def, app.state)) {
-    return `<h1>Step kept.</h1><p class="lede">Next step opens tomorrow.</p><button class="primary full" type="button" data-action="continue" data-day="${def.id}">Start the next step now</button>${leftCard(def, record)}`;
+    return `${goalsLink()}<h1>Step kept.</h1><p class="lede">Next step opens tomorrow.</p><button class="primary full" type="button" data-action="continue" data-day="${def.id}">Start the next step now</button>${leftCard(def, record)}`;
   }
   const instruction = def.kind === "break" ? def.breakNote : def.kind === "date" ? (def.lightPrompt || "Optional. Write if you want.") : (def.prompt || "A little is enough.");
-  return `<h1>${esc(def.title)}</h1>
+  return `${goalsLink()}<h1>${esc(def.title)}</h1>
     <p class="lede">${esc(instruction)}</p>
     ${kindBody(def, record)}
     ${sealOffer(def, record)}
@@ -794,7 +796,7 @@ function viewDates() {
   let rhythm = logic.buildRhythm({
     startISO: start,
     count: 21,
-    workNights: app.state.schedule.workNights,
+    schedule: app.state.schedule,
     ideas,
     overnightEvery: app.state.schedule.overnightEvery || 28,
   });
@@ -824,7 +826,7 @@ function viewDates() {
     .join("");
   return `<div class="view"><h1>Date nights</h1>
     <p class="lede">Ideas for when you both have time. They never hold up a step. Brandon’s weekend nights and Tabby’s days with a child come first.</p>
-    <p class="quiet">${esc(app.state.schedule.shiftLabel)}. Change the nights in Settings if overtime moves them.</p>
+    <p class="quiet">Work days come from the Calendar. From December 4, only the days you add count.</p>
     ${cards}
     <h2>Library</h2>
     <div class="filters">${SETTINGS.map((s) => `<button type="button" class="${app.settingFilter === s.id ? "on" : ""}" data-action="filter-set" data-id="${s.id}">${esc(s.label)}</button>`).join("")}</div>
@@ -863,8 +865,56 @@ function viewCalendar() {
     .join("");
   return `<div class="view"><div class="row" style="justify-content:space-between"><button class="text-btn" type="button" data-action="month" data-dir="-1">Back</button><h1>${head}</h1><button class="text-btn" type="button" data-action="month" data-dir="1">Next</button></div>
     <div class="cal">${["S","M","T","W","T","F","S"].map((d) => `<span class="dow">${d}</span>`).join("")}${grid}</div>
-    <p class="quiet small">Rose is a date idea, green is a phone-down minute, gold is a celebration. Shaded days are work nights. A quiet day is not a missed streak.</p>
-    <button class="ghost" type="button" data-action="add-celebration">Add a celebration</button></div>`;
+    <p class="quiet small">Rose is a date idea, green is a phone-down minute, gold is a celebration or a goal. Shaded days are days Brandon works. A quiet day is not a missed streak.</p>
+    <button class="primary full" type="button" data-action="open-add">+ Add</button>
+    ${eventForm()}
+    <button class="ghost full" type="button" data-action="open-shift">Brandon works</button>
+    ${shiftForm()}
+    ${shiftList()}
+  </div>`;
+}
+
+function eventForm() {
+  if (app.composer !== "event") return "";
+  const iso = app.composerDate || logic.todayISO();
+  return `<div class="card"><p class="kicker">Add to the calendar</p>
+    <label>Title<input id="event-title" type="text" autocomplete="off"></label>
+    <label>Date<input id="event-date" type="date" value="${esc(iso)}"></label>
+    <label>Time, if you want<input id="event-time" type="time"></label>
+    <label>Note, if you want<textarea id="event-note"></textarea></label>
+    <button class="primary full" type="button" data-action="save-event">Save</button>
+    <button class="text-btn" type="button" data-action="cancel-composer">Not now</button>
+  </div>`;
+}
+
+function shiftForm() {
+  if (app.composer !== "shift") return "";
+  const draft = app.shiftDraft || { weekdays: [], start: "", end: "", from: logic.DAY_SHIFT_FROM, until: "" };
+  const days = logic.WEEKDAYS.map((name, i) => {
+    const on = (draft.weekdays || []).map(Number).includes(i);
+    return `<button type="button" class="chip" data-action="shift-day" data-dow="${i}" aria-pressed="${on ? "true" : "false"}">${on ? "✓ " : ""}${name}</button>`;
+  }).join("");
+  return `<div class="card"><p class="kicker">Brandon works</p>
+    <p class="quiet">From December 4, the old weekend nights are not assumed. Pick the days and the hours. You can change or end this anytime.</p>
+    <div class="chips">${days}</div>
+    <label>Starts<input id="shift-start" type="time" value="${esc(draft.start || "")}"></label>
+    <label>Ends<input id="shift-end" type="time" value="${esc(draft.end || "")}"></label>
+    <label>From<input id="shift-from" type="date" value="${esc(draft.from || logic.DAY_SHIFT_FROM)}"></label>
+    <label>Until, if it ends<input id="shift-until" type="date" value="${esc(draft.until || "")}"></label>
+    <button class="primary full" type="button" data-action="save-shift">Save work days</button>
+    <button class="text-btn" type="button" data-action="cancel-composer">Not now</button>
+  </div>`;
+}
+
+function shiftList() {
+  const rows = (app.state.schedule.shifts || []).filter((s) => !s.removed).map((shift) => {
+    const names = (shift.weekdays || []).map((d) => logic.WEEKDAYS[d]).join(", ");
+    const ended = shift.until ? ` until ${shift.until}` : "";
+    return `<article class="card"><h2>Brandon works</h2><p>${esc(names)} · ${esc(shift.start || "")}–${esc(shift.end || "")}</p><p class="quiet">From ${esc(shift.from || "")}${esc(ended)}</p>
+      <button class="ghost" type="button" data-action="edit-shift" data-id="${shift.id}">Edit</button>
+      <button class="text-btn" type="button" data-action="end-shift" data-id="${shift.id}">End</button></article>`;
+  }).join("");
+  return rows;
 }
 
 function viewCalDay(iso) {
@@ -877,6 +927,8 @@ function viewCalDay(iso) {
     .map((p) => `<figure class="shot">${app.photoUrls[p.id] ? `<img alt="" src="${app.photoUrls[p.id]}">` : ""}<p>${esc(p.caption || "Photo")}</p></figure>`)
     .join("");
   return `<div class="view"><button class="text-btn" type="button" data-go="#/calendar">Calendar</button><h1>${esc(iso)}</h1>${list || `<p class="quiet">A quiet day. Nothing was owed.</p>`}<div class="album">${shots}</div>
+    <button class="primary full" type="button" data-action="open-add" data-date="${iso}">+ Add</button>
+    ${app.composer === "event" ? eventForm() : ""}
     <button class="soft" type="button" data-action="add-photo" data-on="${iso}">Add a photo to this day</button></div>`;
 }
 
@@ -914,8 +966,69 @@ function presenceCard() {
   </div>`;
 }
 
+function goalsLink() {
+  return `<button class="text-btn" type="button" data-go="#/goals">Goals</button>`;
+}
+
+function prettyDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function viewGoals() {
+  const open = (app.state.goals || []).filter((g) => !g.removed && !g.done);
+  const done = (app.state.goals || []).filter((g) => !g.removed && g.done);
+  const cards = open.map((goal) => goalCard(goal)).join("");
+  const finished = done.map((goal) => `<article class="card"><h2>${esc(goal.title)}</h2><p class="quiet">Done${goal.doneBy ? ` · ${esc(cap(goal.doneBy))}` : ""}</p></article>`).join("");
+  return `<div class="view"><h1>Goals</h1>
+    <p class="quiet">Either of you can add one. A date goes on the calendar only after you both agree.</p>
+    <button class="primary full" type="button" data-action="open-goal">+ Add</button>
+    ${goalForm()}
+    ${cards || `<p class="quiet">No goals yet.</p>`}
+    ${finished ? `<h2>Done</h2>${finished}` : ""}
+  </div>`;
+}
+
+function goalForm() {
+  if (app.composer !== "goal") return "";
+  return `<div class="card">
+    <label>Title<input id="goal-title" type="text" autocomplete="off"></label>
+    <label>Note, if you want<textarea id="goal-note"></textarea></label>
+    <button class="primary full" type="button" data-action="save-goal">Save</button>
+    <button class="text-btn" type="button" data-action="cancel-composer">Not now</button>
+  </div>`;
+}
+
+function goalCard(goal) {
+  const who = cap(goal.by || "brandon");
+  const agreed = logic.goalOn(goal);
+  const proposal = goal.proposal;
+  const mine = proposal?.by === profile();
+  const passed = proposal && (goal.passed?.[profile()] || 0) >= (proposal.at || 0);
+  let ask = "";
+  if (agreed) {
+    ask = `<p>On the calendar, ${esc(prettyDate(agreed))}.</p><button class="text-btn" type="button" data-action="open-counter" data-id="${goal.id}">Pick another date</button>`;
+  } else if (proposal?.iso && !passed) {
+    ask = `<p>${esc(cap(proposal.by))} suggested ${esc(prettyDate(proposal.iso))}.</p>
+      ${mine ? `<p class="quiet">Waiting on ${esc(otherName())}.</p>` : `<button class="primary" type="button" data-action="agree-goal" data-id="${goal.id}">Agree</button>
+      <button class="ghost" type="button" data-action="open-counter" data-id="${goal.id}">Pick another date</button>
+      <button class="text-btn" type="button" data-action="not-yet" data-id="${goal.id}">Not yet</button>`}`;
+  } else if (proposal?.iso && passed) {
+    ask = `<p class="quiet">${esc(cap(proposal.by))} suggested ${esc(prettyDate(proposal.iso))}. Not yet.</p>`;
+  }
+  const showSuggest = !agreed && (passed || !proposal?.iso || mine);
+  const counter = app.composer === "counter" && app.composerFor === goal.id
+    ? `<label>Date<input id="goal-date" type="date" value="${esc(proposal?.iso || logic.todayISO())}"></label><button class="primary" type="button" data-action="save-proposal" data-id="${goal.id}">Suggest this date</button>`
+    : showSuggest ? `<button class="text-btn" type="button" data-action="open-counter" data-id="${goal.id}">Suggest a date</button>` : "";
+  return `<article class="card"><h2>${esc(goal.title)}</h2>${goal.note ? `<p>${esc(goal.note)}</p>` : ""}<p class="quiet">Added by ${esc(who)}</p>${ask}${counter}
+    <button class="ghost" type="button" data-action="done-goal" data-id="${goal.id}">Mark done</button></article>`;
+}
+
 function viewMore() {
   const items = [
+    ["goals", "Goals"],
     ["calendar", "Calendar"],
     ["album", "Photos"],
     ["presence", "Be present"],
@@ -1021,7 +1134,7 @@ function viewSettings() {
       <button class="ghost" type="button" data-profile="tabby">I’m Tabby</button>
       <button class="ghost" type="button" data-profile="brandon">I’m Brandon</button>
     </div>
-    <div class="card"><p class="kicker">Work nights</p><p class="quiet">Brandon works weekend nights at GE Aerospace, about a 36-hour week, sometimes overtime. Micro-dates land before those shifts. Bigger dates move to nights off.</p>${toggles}
+    <div class="card"><p class="kicker">Work nights before December 4</p><p class="quiet">These old weekend nights apply only before December 4. After that, add the real days and hours on the Calendar. Nothing is assumed.</p>${toggles}
       <label>What to call the shift<input id="shift-label" type="text" value="${esc(app.state.schedule.shiftLabel || "")}"></label>
       <button class="soft" type="button" data-action="save-shift">Save schedule</button></div>
     <div class="card"><p class="kicker">Passphrase</p>
@@ -1319,6 +1432,40 @@ function handle(action, btn) {
   if (action === "plan-date" || action === "plan-next") planDate(btn);
   if (action === "add-photo") addPhoto(btn.dataset.on || logic.todayISO());
   if (action === "month") shiftMonth(Number(btn.dataset.dir));
+  if (action === "open-add") {
+    app.composer = "event";
+    app.composerDate = btn.dataset.date || logic.todayISO();
+    render();
+  }
+  if (action === "cancel-composer") {
+    app.composer = "";
+    app.composerFor = "";
+    render();
+  }
+  if (action === "save-event") saveEvent();
+  if (action === "open-shift") {
+    app.composer = "shift";
+    app.shiftDraft = { weekdays: [], start: "", end: "", from: logic.DAY_SHIFT_FROM, until: "", id: "" };
+    render();
+  }
+  if (action === "shift-day") toggleShiftDay(Number(btn.dataset.dow));
+  if (action === "save-shift") saveShift();
+  if (action === "edit-shift") editShift(btn.dataset.id);
+  if (action === "end-shift") endShift(btn.dataset.id);
+  if (action === "open-goal") {
+    app.composer = "goal";
+    render();
+  }
+  if (action === "save-goal") saveGoal();
+  if (action === "open-counter") {
+    app.composer = "counter";
+    app.composerFor = btn.dataset.id;
+    render();
+  }
+  if (action === "save-proposal") proposeGoal(btn.dataset.id);
+  if (action === "agree-goal") agreeGoal(btn.dataset.id);
+  if (action === "not-yet") notYetGoal(btn.dataset.id);
+  if (action === "done-goal") doneGoal(btn.dataset.id);
   if (action === "add-celebration") addCelebration();
   if (action === "add-memory") addMemory(btn.dataset.year);
   if (action === "add-project") addProject();
@@ -1695,7 +1842,7 @@ function planDate(btn) {
   const ideas = allIdeas(app.state.customIdeas);
   const length = btn.dataset.length;
   const from = btn.dataset.date || logic.todayISO();
-  const slots = logic.nextFittingDates(app.state.schedule.workNights, from, length, 1);
+  const slots = logic.nextFittingDates(app.state.schedule, from, length, 1);
   const date = btn.dataset.date || slots[0]?.iso || from;
   const idea = btn.dataset.idea;
   const leader = btn.dataset.leader || (Object.keys(app.state.datePlans).length % 2 === 0 ? "tabby" : "brandon");
@@ -1755,6 +1902,162 @@ function shiftMonth(dir) {
   const [y, m] = base.split("-").map(Number);
   const next = new Date(Date.UTC(y, m - 1 + dir, 1));
   app.calMonth = next.toISOString().slice(0, 10);
+  render();
+}
+
+function saveEvent() {
+  const title = document.getElementById("event-title")?.value.trim();
+  const iso = document.getElementById("event-date")?.value;
+  if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return;
+  app.state.events = app.state.events || [];
+  app.state.events.push({
+    id: logic.newId("e"),
+    title,
+    iso,
+    time: document.getElementById("event-time")?.value || "",
+    note: document.getElementById("event-note")?.value.trim() || "",
+    by: profile(),
+    updatedAt: Date.now(),
+  });
+  app.composer = "";
+  scheduleSave();
+  render();
+}
+
+function readShiftDraft() {
+  const draft = app.shiftDraft || { weekdays: [], from: logic.DAY_SHIFT_FROM };
+  const start = document.getElementById("shift-start");
+  const end = document.getElementById("shift-end");
+  const from = document.getElementById("shift-from");
+  const until = document.getElementById("shift-until");
+  if (start) draft.start = start.value;
+  if (end) draft.end = end.value;
+  if (from) draft.from = from.value;
+  if (until) draft.until = until.value;
+  app.shiftDraft = draft;
+  return draft;
+}
+
+function toggleShiftDay(dow) {
+  const draft = readShiftDraft();
+  const days = new Set((draft.weekdays || []).map(Number));
+  if (days.has(dow)) days.delete(dow);
+  else days.add(dow);
+  draft.weekdays = [...days];
+  render();
+}
+
+function saveShift() {
+  const draft = readShiftDraft();
+  if (!(draft.weekdays || []).length || !draft.start || !draft.end || !draft.from) return;
+  const shifts = app.state.schedule.shifts || [];
+  const now = Date.now();
+  if (draft.id) {
+    const found = shifts.find((s) => s.id === draft.id);
+    if (found) Object.assign(found, { weekdays: draft.weekdays.map(Number), start: draft.start, end: draft.end, from: draft.from, until: draft.until || "", updatedAt: now });
+  } else {
+    shifts.push({
+      id: logic.newId("shift"),
+      weekdays: draft.weekdays.map(Number),
+      start: draft.start,
+      end: draft.end,
+      from: draft.from,
+      until: draft.until || "",
+      by: profile(),
+      updatedAt: now,
+    });
+  }
+  app.state.schedule.shifts = shifts;
+  app.composer = "";
+  scheduleSave();
+  render();
+}
+
+function editShift(id) {
+  const shift = (app.state.schedule.shifts || []).find((s) => s.id === id);
+  if (!shift) return;
+  app.shiftDraft = { id: shift.id, weekdays: [...(shift.weekdays || [])], start: shift.start, end: shift.end, from: shift.from, until: shift.until || "" };
+  app.composer = "shift";
+  render();
+}
+
+function endShift(id) {
+  const shift = (app.state.schedule.shifts || []).find((s) => s.id === id);
+  if (!shift) return;
+  shift.until = logic.todayISO();
+  shift.updatedAt = Date.now();
+  scheduleSave();
+  render();
+}
+
+function saveGoal() {
+  const title = document.getElementById("goal-title")?.value.trim();
+  if (!title) return;
+  app.state.goals = app.state.goals || [];
+  app.state.goals.push({
+    id: logic.newId("goal"),
+    title,
+    note: document.getElementById("goal-note")?.value.trim() || "",
+    by: profile(),
+    at: Date.now(),
+    updatedAt: Date.now(),
+    proposal: null,
+    agreed: {},
+    passed: {},
+    done: false,
+  });
+  app.composer = "";
+  scheduleSave();
+  render();
+}
+
+function proposeGoal(id) {
+  const goal = (app.state.goals || []).find((g) => g.id === id);
+  const iso = document.getElementById("goal-date")?.value;
+  if (!goal || !/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return;
+  const now = Date.now();
+  goal.proposal = { iso, by: profile(), at: now };
+  goal.agreed = goal.agreed || {};
+  goal.agreed[profile()] = { iso, at: now };
+  const other = profile() === "tabby" ? "brandon" : "tabby";
+  if (goal.agreed[other]?.iso !== iso) delete goal.agreed[other];
+  goal.passed = {};
+  goal.updatedAt = now;
+  app.composer = "";
+  app.composerFor = "";
+  scheduleSave();
+  render();
+}
+
+function agreeGoal(id) {
+  const goal = (app.state.goals || []).find((g) => g.id === id);
+  if (!goal?.proposal?.iso) return;
+  const now = Date.now();
+  goal.agreed = goal.agreed || {};
+  goal.agreed[profile()] = { iso: goal.proposal.iso, at: now };
+  goal.updatedAt = now;
+  scheduleSave();
+  render();
+}
+
+function notYetGoal(id) {
+  const goal = (app.state.goals || []).find((g) => g.id === id);
+  if (!goal?.proposal) return;
+  goal.passed = goal.passed || {};
+  goal.passed[profile()] = goal.proposal.at || Date.now();
+  goal.updatedAt = Date.now();
+  scheduleSave();
+  render();
+}
+
+function doneGoal(id) {
+  const goal = (app.state.goals || []).find((g) => g.id === id);
+  if (!goal) return;
+  goal.done = true;
+  goal.doneAt = Date.now();
+  goal.doneBy = profile();
+  goal.updatedAt = goal.doneAt;
+  scheduleSave();
   render();
 }
 

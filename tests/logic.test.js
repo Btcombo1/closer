@@ -7,6 +7,8 @@ import {
   mergeState,
   normalizeState,
   buildRhythm,
+  dayFlags,
+  lengthFits,
   defaultWorkNights,
   isDayComplete,
   currentIndex,
@@ -121,17 +123,34 @@ test("work nights only get short dates", () => {
   assert.notEqual(leaders[0], leaders[1]);
   for (const item of rhythm) {
     const dow = item.weekday;
-    const working = !!defaultWorkNights()[dow];
-    if (working) assert.ok(item.length === "5" || item.length === "10");
+    const legacy = item.date < "2026-12-04" && !!defaultWorkNights()[dow];
+    if (legacy) assert.ok(item.length === "5" || item.length === "10");
+    if (item.date >= "2026-12-04") assert.equal(item.working, false);
     if (item.length === "overnight") {
-      assert.equal(working, false);
-      assert.equal(!!defaultWorkNights()[(dow + 1) % 7], false);
+      assert.equal(item.working, false);
+      if (item.date < "2026-12-04") assert.equal(!!defaultWorkNights()[(dow + 1) % 7], false);
     }
   }
   const overnights = rhythm.filter((r) => r.length === "overnight");
   assert.ok(overnights.length >= 1 && overnights.length <= 3);
   const big = rhythm.map((r, i) => (["day", "night", "overnight"].includes(r.length) ? i : -1)).filter((i) => i >= 0);
   for (let i = 1; i < big.length; i++) assert.ok(big[i] - big[i - 1] >= 2);
+});
+
+test("from December 4 only entered work days count", () => {
+  const nights = defaultWorkNights();
+  assert.equal(dayFlags({ workNights: nights, shifts: [] }, "2026-11-28").late, true);
+  assert.equal(dayFlags({ workNights: nights, shifts: [] }, "2026-12-05").working, false);
+  const schedule = {
+    workNights: nights,
+    shifts: [{ id: "s", weekdays: [5, 6], start: "07:00", end: "19:00", from: "2026-12-04", until: "" }],
+  };
+  const friday = dayFlags(schedule, "2026-12-04");
+  assert.equal(friday.working, true);
+  assert.equal(friday.late, false);
+  assert.equal(lengthFits("night", "2026-12-04", schedule).ok, true);
+  assert.equal(lengthFits("day", "2026-12-04", schedule).ok, false);
+  assert.equal(dayFlags(schedule, "2026-12-06").working, false);
 });
 
 test("calendar preloads anniversary, birthday, and together-since", () => {

@@ -31,11 +31,14 @@ export function emptyState() {
       shiftLabel: "Weekend nights at GE Aerospace",
       startISO: null,
       overnightEvery: 28,
+      shifts: [],
     },
     datePlans: {},
     customIdeas: [],
     photos: [],
     celebrations: [],
+    events: [],
+    goals: [],
     presence: {},
     justUs: { lists: {}, notes: {}, checkins: [], ideas: [] },
     updatedAt: null,
@@ -100,6 +103,8 @@ export function normalizeState(input) {
   out.affirmations = Array.isArray(out.affirmations) ? out.affirmations : [];
   out.photos = Array.isArray(out.photos) ? out.photos : [];
   out.celebrations = Array.isArray(out.celebrations) ? out.celebrations : [];
+  out.events = Array.isArray(out.events) ? out.events : [];
+  out.goals = Array.isArray(out.goals) ? out.goals : [];
   out.presence = out.presence && typeof out.presence === "object" ? out.presence : {};
   out.datePlans = out.datePlans && typeof out.datePlans === "object" ? out.datePlans : {};
   out.customIdeas = Array.isArray(out.customIdeas) ? out.customIdeas : [];
@@ -109,6 +114,7 @@ export function normalizeState(input) {
     ...base.schedule,
     ...(out.schedule || {}),
     workNights: normalizeWorkNights(out.schedule?.workNights || base.schedule.workNights),
+    shifts: Array.isArray(out.schedule?.shifts) ? out.schedule.shifts : [],
   };
   out.justUs = {
     lists: {},
@@ -340,6 +346,7 @@ function mergeWorkNight(a = {}, b = {}) {
   const base = (b.updatedAt || 0) >= (a.updatedAt || 0) ? { ...a, ...b } : { ...b, ...a };
   base.workNights = nights;
   base.workTouched = touched;
+  base.shifts = unionById(a.shifts || [], b.shifts || [], (x, y) => newer(x, y)).filter((s) => !s.removed);
   return base;
 }
 
@@ -476,6 +483,8 @@ export function mergeState(local, remote) {
       return base;
     }).filter((p) => !p.removed),
     celebrations,
+    events: unionById(a.events || [], b.events || [], (x, y) => newer(x, y)).filter((e) => !e.removed),
+    goals: unionById(a.goals || [], b.goals || [], mergeGoal).filter((g) => !g.removed),
     presence,
     justUs: {
       lists: mergeLists(a.justUs.lists, b.justUs.lists),
@@ -849,21 +858,87 @@ export function shouldOfferRest(state, days, today, continueAfterId) {
   return null;
 }
 
-export function flagsFor(iso, workNights) {
+export const DAY_SHIFT_FROM = "2026-12-04";
+
+function asSchedule(value) {
+  if (!value) return { workNights: defaultWorkNights(), shifts: [] };
+  if (value.workNights || Array.isArray(value.shifts)) {
+    return { workNights: normalizeWorkNights(value.workNights), shifts: value.shifts || [] };
+  }
+  return { workNights: normalizeWorkNights(value), shifts: [] };
+}
+
+function minutesOf(hhmm) {
+  const [h, m] = String(hhmm || "").split(":").map(Number);
+  if (!Number.isFinite(h)) return null;
+  return h * 60 + (Number.isFinite(m) ? m : 0);
+}
+
+export function shiftOnDay(shift, iso) {
+  if (!shift || shift.removed) return false;
+  if (shift.from && iso < shift.from) return false;
+  if (shift.until && iso > shift.until) return false;
+  return (shift.weekdays || []).map(Number).includes(dowISO(iso));
+}
+
+function shiftShape(shift) {
+  const start = minutesOf(shift.start);
+  const end = minutesOf(shift.end);
+  if (start == null || end == null) return { late: false, daytime: false };
+  const crosses = end <= start;
+  const late = crosses || end >= 20 * 60;
+  const daytime = !crosses && end <= 19 * 60;
+  return { late, daytime };
+}
+
+function shiftsFor(schedule, iso) {
+  return (schedule.shifts || []).filter((shift) => shiftOnDay(shift, iso));
+}
+
+function dayIsLate(schedule, iso) {
+  const sched = asSchedule(schedule);
+  const mine = shiftsFor(sched, iso);
+  if (mine.some((shift) => shiftShape(shift).late)) return true;
+  return !mine.length && iso < DAY_SHIFT_FROM && !!sched.workNights[dowISO(iso)];
+}
+
+export function dayFlags(schedule, iso) {
+  const sched = asSchedule(schedule);
   const dow = dowISO(iso);
-  const prev = (dow + 6) % 7;
-  const next = (dow + 1) % 7;
+  const mine = shiftsFor(sched, iso);
+  let working = false;
+  let late = false;
+  let daytime = false;
+  if (mine.length) {
+    working = true;
+    for (const shift of mine) {
+      const shape = shiftShape(shift);
+      if (shape.late) late = true;
+      if (shape.daytime) daytime = true;
+    }
+  } else if (iso < DAY_SHIFT_FROM && sched.workNights[dow]) {
+    working = true;
+    late = true;
+  }
   return {
     dow,
-    working: !!workNights[dow],
-    recovering: !!workNights[prev],
-    nextWorking: !!workNights[next],
+    working,
+    late,
+    daytime,
+    recovering: dayIsLate(sched, addDaysISO(iso, -1)),
+    nextWorking: dayIsLate(sched, addDaysISO(iso, 1)),
   };
 }
 
-function overnightOK(iso, workNights) {
-  const f = flagsFor(iso, workNights);
-  return !f.working && !f.nextWorking && !f.recovering;
+export function flagsFor(iso, workNightsOrSchedule) {
+  return dayFlags(workNightsOrSchedule, iso);
+}
+
+function overnightOK(iso, workNightsOrSchedule) {
+  const sched = asSchedule(workNightsOrSchedule);
+  const today = dayFlags(sched, iso);
+  const next = dayFlags(sched, addDaysISO(iso, 1));
+  return !today.working && !next.working && !today.recovering;
 }
 
 export function planOvernightDates(startISO, count, workNights, every = 28) {
@@ -885,9 +960,9 @@ export function planOvernightDates(startISO, count, workNights, every = 28) {
   return set;
 }
 
-export function buildRhythm({ startISO, count = 42, workNights, ideas = [], overnightEvery = 28 }) {
-  const nights = normalizeWorkNights(workNights);
-  const overnights = planOvernightDates(startISO, count, nights, overnightEvery);
+export function buildRhythm({ startISO, count = 42, workNights, schedule, ideas = [], overnightEvery = 28 }) {
+  const sched = schedule || { workNights: normalizeWorkNights(workNights), shifts: schedule?.shifts || [] };
+  const overnights = planOvernightDates(startISO, count, sched, overnightEvery);
   const out = [];
   let lastBig = -999;
   let microToggle = 0;
@@ -896,7 +971,7 @@ export function buildRhythm({ startISO, count = 42, workNights, ideas = [], over
   const byLength = (length) => ideas.filter((idea) => idea.length === length && !idea.removed);
   for (let i = 0; i < count; i++) {
     const date = addDaysISO(startISO, i);
-    const f = flagsFor(date, nights);
+    const f = dayFlags(sched, date);
     const near =
       overnights.has(date) ||
       overnights.has(addDaysISO(startISO, i - 1)) ||
@@ -907,10 +982,14 @@ export function buildRhythm({ startISO, count = 42, workNights, ideas = [], over
       length = "overnight";
       when = "off-stretch";
       lastBig = i;
-    } else if (f.working) {
+    } else if (f.working && f.late) {
       length = microToggle % 2 === 0 ? "5" : "10";
       microToggle += 1;
       when = "before-shift";
+    } else if (f.working) {
+      length = microToggle % 2 === 0 ? "5" : "10";
+      microToggle += 1;
+      when = "evening";
     } else if (!near && i - lastBig >= 3) {
       if (f.recovering) {
         length = "night";
@@ -960,32 +1039,69 @@ export function applyPlanOverrides(suggestions, plans = {}) {
   });
 }
 
-export function nextFittingDates(workNights, fromISO, length, n = 4) {
-  const nights = normalizeWorkNights(workNights);
+export function nextFittingDates(workNightsOrSchedule, fromISO, length, n = 4) {
+  const sched = asSchedule(workNightsOrSchedule);
   const out = [];
   for (let i = 0; i < 70 && out.length < n; i++) {
     const iso = addDaysISO(fromISO, i);
-    const f = flagsFor(iso, nights);
+    const f = dayFlags(sched, iso);
     let ok = false;
     if (length === "5" || length === "10") ok = true;
     if (length === "day") ok = !f.working && !f.recovering;
-    if (length === "night") ok = !f.working;
-    if (length === "overnight") ok = overnightOK(iso, nights);
+    if (length === "night") ok = !f.late;
+    if (length === "overnight") ok = overnightOK(iso, sched);
     if (ok) out.push({ iso, dow: f.dow, working: f.working, recovering: f.recovering });
   }
   return out;
 }
 
-export function lengthFits(length, iso, workNights) {
-  const f = flagsFor(iso, normalizeWorkNights(workNights));
+export function lengthFits(length, iso, workNightsOrSchedule) {
+  const sched = asSchedule(workNightsOrSchedule);
+  const f = dayFlags(sched, iso);
   if (length === "5" || length === "10") return { ok: true };
-  if (length === "night" && f.working) return { ok: false, reason: "Brandon works this night. A 5 or 10 minute date before shift fits better." };
-  if (length === "day" && f.working) return { ok: false, reason: "This is a work night. A short before-shift date fits better than a day away." };
-  if (length === "day" && f.recovering) return { ok: false, reason: "He may be sleeping after a night shift. Later in the day, or another day, is kinder." };
-  if (length === "overnight" && !overnightOK(iso, workNights)) {
-    return { ok: false, reason: "An overnight needs two nights off in a row, not bumped against a shift." };
+  if (length === "night" && f.late) return { ok: false, reason: "Brandon works that evening. A short date before the shift fits better." };
+  if (length === "day" && f.working) return { ok: false, reason: "Brandon works this day. An evening, or another day, fits better." };
+  if (length === "day" && f.recovering) return { ok: false, reason: "He may be sleeping after a late shift. Later, or another day, is kinder." };
+  if (length === "overnight" && !overnightOK(iso, sched)) {
+    return { ok: false, reason: "An overnight needs the night and the next day free." };
   }
   return { ok: true };
+}
+
+export function goalOn(goal) {
+  if (!goal || goal.removed || goal.done) return null;
+  const iso = goal.proposal?.iso;
+  if (!iso) return null;
+  if (goal.agreed?.tabby?.iso === iso && goal.agreed?.brandon?.iso === iso) return iso;
+  return null;
+}
+
+function mergeGoal(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  const newerGoal = (a.updatedAt || 0) >= (b.updatedAt || 0) ? a : b;
+  const proposal = (a.proposal?.at || 0) >= (b.proposal?.at || 0) ? a.proposal || null : b.proposal || null;
+  const agreed = {};
+  for (const who of ["tabby", "brandon"]) {
+    const left = a.agreed?.[who];
+    const right = b.agreed?.[who];
+    agreed[who] = (right?.at || 0) >= (left?.at || 0) ? right || null : left || null;
+  }
+  const passed = {};
+  for (const who of ["tabby", "brandon"]) {
+    passed[who] = Math.max(a.passed?.[who] || 0, b.passed?.[who] || 0) || null;
+  }
+  const done = !!(a.done || b.done);
+  return {
+    ...a,
+    ...newerGoal,
+    proposal,
+    agreed,
+    passed,
+    done,
+    doneAt: done ? a.doneAt || b.doneAt || newerGoal.doneAt || null : null,
+    doneBy: done ? a.doneBy || b.doneBy || newerGoal.doneBy || null : null,
+  };
 }
 
 export function celebrationOn(item, iso) {
@@ -998,9 +1114,28 @@ export function celebrationOn(item, iso) {
 
 export function calendarItems(iso, state, days = []) {
   const items = [];
-  const nights = normalizeWorkNights(state.schedule?.workNights);
-  const f = flagsFor(iso, nights);
-  if (f.working) items.push({ type: "shift", title: "Work night", detail: state.schedule?.shiftLabel || "Shift" });
+  const sched = state.schedule || {};
+  const f = dayFlags(sched, iso);
+  if (f.working) {
+    const mine = (sched.shifts || []).filter((shift) => shiftOnDay(shift, iso));
+    if (mine.length) {
+      for (const shift of mine) {
+        const hours = shift.start && shift.end ? `${shift.start}–${shift.end}` : "";
+        items.push({ type: "shift", title: "Brandon works", detail: hours, id: shift.id });
+      }
+    } else {
+      items.push({ type: "shift", title: "Work night", detail: sched.shiftLabel || "Shift" });
+    }
+  }
+  for (const event of state.events || []) {
+    if (event.removed || event.iso !== iso) continue;
+    const when = event.time ? `${event.time}${event.note ? ` · ${event.note}` : ""}` : event.note || "";
+    items.push({ type: "event", title: event.title, detail: when, id: event.id });
+  }
+  for (const goal of state.goals || []) {
+    if (goalOn(goal) !== iso) continue;
+    items.push({ type: "goal", title: goal.title, detail: goal.note || "A goal you both agreed on", id: goal.id });
+  }
   for (const c of state.celebrations || []) {
     if (celebrationOn(c, iso)) items.push({ type: "celebration", title: c.title, detail: c.note || "", id: c.id, kind: c.kind });
   }
