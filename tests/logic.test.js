@@ -9,6 +9,7 @@ import {
   buildRhythm,
   defaultWorkNights,
   isDayComplete,
+  currentIndex,
   answerView,
   calendarItems,
   celebrationOn,
@@ -44,6 +45,16 @@ test("eight weeks, one date and at least one rest each week", () => {
       assert.ok(day.insight.quoteFrom);
     }
   }
+});
+
+test("steps do not require both people in the same place", () => {
+  const banned = [/same room/i, /same house/i, /same couch/i, /face each other/i, /face to face/i, /eye contact/i, /read aloud/i, /out loud/i, /sit together/i, /go be together/i, /another room/i, /hold hands/i, /both home/i, /\bhug\b/i, /in person/i, /phones down/i, /basket/i];
+  for (const day of DAYS) {
+    const blob = [day.prompt, day.breakNote, day.together, day.lightPrompt, day.why, day.insight?.exercise, ...(day.lesson || [])].filter(Boolean).join("\n");
+    for (const re of banned) assert.equal(re.test(blob), false, `${day.id} ${re}`);
+  }
+  const list = [{ id: "opt", kind: "date" }, { id: "next", kind: "prompt" }];
+  assert.equal(currentIndex({ days: {} }, list), 1);
 });
 
 test("copy never asks them to pray", () => {

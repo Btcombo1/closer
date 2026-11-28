@@ -59,9 +59,9 @@ export const CALMING = {
     read: "Move attention slowly from feet to face. You do not have to relax anything. Just notice, then move on.",
   },
   reassure: {
-    title: "Words to read aloud",
+    title: "Words to read to yourself",
     kind: "reassure",
-    read: "Tabby can read these, or Brandon can read them to her. Slowly. Then stop.",
+    read: "Read these to yourself, slowly. Then stop. You do not need anyone else in the room.",
   },
 };
 
@@ -175,7 +175,7 @@ export const DAYS = [
   day({
     week: 1, day: 1, kind: "agreements", phase: "safety", owner: "both",
     title: "How we will treat this",
-    prompt: "Read the ground rules together. Each of you says yes to every one you can keep, and adds anything you need so this does not feel like a trial.",
+    prompt: "On your own phone, read the ground rules. Say yes to every one you can keep, and add anything you need. The other person does the same when they can.",
     why: "A hard conversation goes better when the rules are kind and shared before the story starts.",
     covers: ["ground-rules"],
     ruleIds: GROUND_RULES.map((r) => r.id),
@@ -183,7 +183,7 @@ export const DAYS = [
       "A soft start is a complaint about the moment, not a verdict about the person. The way a hard talk begins often decides whether anyone can stay in it.",
       "Each of you says one sentence you hope the other will remember while you do this work."
     ),
-    together: "Put both phones in another room and read one ground rule out loud. Then go get a glass of water together.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 1, day: 2, kind: "prompt", phase: "safety", owner: "tabby", sealsPhase: "safety",
@@ -196,7 +196,7 @@ export const DAYS = [
       "Name one condition that would help, and one thing that can wait.",
       BROWN
     ),
-    together: "Five quiet minutes on the couch. No topic. Just be in the same room without a screen.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 1, day: 3, kind: "break", phase: "safety", owner: "both",
@@ -206,9 +206,9 @@ export const DAYS = [
     covers: ["rest"],
     insight: G(
       "Small moments of turning toward each other, with no agenda, are what a friendship inside a marriage is made of.",
-      "If you are in the same room, one of you can pour a drink for the other. That is the whole exercise."
+      "Each of you can rest on your own. A kind sentence on the phone is enough."
     ),
-    together: "A phone-free snack, five minutes, and then you are done with Closer today.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 1, day: 4, kind: "exercise", phase: "helping", owner: "both", sealsPhase: "helping",
@@ -228,9 +228,9 @@ export const DAYS = [
     ],
     insight: G(
       "Criticism is one of the patterns that wears a marriage down. The antidote is a gentle start: what I feel, what is happening, and what I need, without a label on the person.",
-      "Each of you writes a helping version and a criticism version of the store scene. Then you say how the other person's words land: supported, mixed, or judged."
+      "Each of you writes a helping version and a criticism version on your own phone. When the other person's words arrive, mark how they land: supported, mixed, or judged."
     ),
-    together: "After you rate the practice lines, put the phones down and eat something. Do not workshop a real fight tonight.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 1, day: 5, kind: "prompt", phase: "safety", owner: "brandon",
@@ -242,7 +242,7 @@ export const DAYS = [
       "Sharing fondness and admiration is a practice, not a mood. Specific praise ('I see how you kept the house steady') lands differently than a general compliment.",
       "Brandon writes two concrete sentences. Tabby, if you want, tell him which word you can actually take in."
     ),
-    together: "The person who did not lead the writing gets to pick a five-minute song. Listen together, then stop.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 1, day: 6, kind: "date", phase: "safety", owner: "both",
@@ -253,9 +253,9 @@ export const DAYS = [
     covers: ["date"],
     insight: GC(
       "Quality time, for many people, is uninterrupted attention. It does not have to be expensive to feel like love.",
-      "Agree on a pocket of time with both phones in a basket. One of you leads. The other is the guest."
+      "Write what a kind hour would be, for whenever you both happen to be free. You do not have to plan it today."
     ),
-    together: "Do the date, or a five-minute version of it, and then leave the phones alone a little longer.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 1, day: 7, kind: "break", phase: "safety", owner: "both",
@@ -265,9 +265,9 @@ export const DAYS = [
     covers: ["rest"],
     insight: SJ(
       "A sense of safety grows in small, repeated moments of 'I am here,' not only in big talks.",
-      "If you pass each other in the kitchen, pause for a twenty-second hug. Then go back to the day."
+      "Rest on your own today. You do not review the week, and you do not need to be home at the same time."
     ),
-    together: "Hug, or sit with a drink. Five minutes. No debrief.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 2, day: 1, kind: "prompt", phase: "right-now", owner: "tabby",
@@ -279,7 +279,7 @@ export const DAYS = [
       "Under most repeating fights is a raw spot: a tender place that says, I am not sure I matter to you. Naming the present feeling is how that spot gets seen.",
       "Write the feeling before the story. One paragraph is a full day's work."
     ),
-    together: "When you are done writing, leave the phone and do one ordinary task side by side, like folding a towel or pouring coffee.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 2, day: 2, kind: "prompt", phase: "right-now", owner: "tabby",
@@ -291,7 +291,7 @@ export const DAYS = [
       "A harsh startup or a missed bid can wake an older injury. Seeing the spark helps you tell today apart from the whole history.",
       "If you can, name the day it stirred. If you cannot, describe the feeling in the room."
     ),
-    together: "A five-minute walk, or to the mailbox and back, with phones left inside.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 2, day: 3, kind: "break", phase: "right-now", owner: "both",
@@ -301,33 +301,33 @@ export const DAYS = [
     covers: ["rest"],
     insight: HL(
       "People tell the truth more fully when they are not being hurried toward a neat ending.",
-      "Say out loud, to each other or to yourself: nothing is due today."
+      "On your own phone, you can write: nothing is due today. Then stop."
     ),
-    together: "Sit together for five minutes without solving anything.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 2, day: 4, kind: "prompt", phase: "right-now", owner: "tabby",
     title: "When you last felt this way",
     prompt: "When did you last feel something like this, before the current stir? What was happening around you? You are describing a feeling, not building a case.",
-    why: "Patterns get clearer when you place two moments side by side without forcing them to match.",
+    why: "Patterns get clearer when you set two moments next to each other in writing, without forcing them to match.",
     covers: ["last-felt-this-way"],
     insight: SJ(
       "Couples often get stuck in a loop: one person reaches in protest, the other gets quiet or explains. Seeing the loop is different from deciding who started it.",
       "If you notice the loop, describe it as 'we,' not as 'you always.'"
     ),
-    together: "Trade one six-word check-in, then put the phones down.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 2, day: 5, kind: "prompt", phase: "right-now", owner: "tabby", sealsPhase: "right-now",
     title: "What you have not said about right now",
-    prompt: "Is there something about the present that you have not said out loud to Brandon? It might be small. It might be that you are tired of saying it. You can say part of it. When you are ready, you can mark that you have said enough on this chapter for now.",
+    prompt: "Is there something about the present that you have not written to Brandon? It might be small. It might be that you are tired of saying it. You can write part of it. When you are ready, you can mark that you have said enough on this chapter for now.",
     why: "Unsaid sentences tend to come back louder. A partial truth, finished on purpose, still counts.",
     covers: ["never-said"],
     insight: BB(
       "Speaking a vulnerable thing is not the same as handing someone a weapon. You get to choose the size of the truth.",
       "Write the sentence you have been editing in your head. You can keep the rest for later."
     ),
-    together: "After you seal this chapter, or after you decide not to yet, go be in the same room for five screen-free minutes.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 2, day: 6, kind: "date", phase: "right-now", owner: "both",
@@ -338,21 +338,21 @@ export const DAYS = [
     covers: ["date"],
     insight: G(
       "Turning toward a small bid, a sigh, a comment, a look, is how friendship stays alive between hard conversations.",
-      "On this date, notice one bid from the other and turn toward it. Phones stay in the basket."
+      "Write about one small bid you noticed, or one you wish you had answered. You can do that from wherever you are."
     ),
-    together: "Let the date, even a tiny one, be the last thing the phone is part of tonight.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 2, day: 7, kind: "break", phase: "right-now", owner: "both",
     title: "A kind empty day",
-    breakNote: "You do not owe this app a mood. Rest. If the feeling from the week is still in the room, you can be gentle with it without writing.",
+    breakNote: "You do not owe this app a mood. Rest. If the feeling from the week is still with you, you can be gentle with it without writing.",
     why: "Rest days keep honesty from turning into pressure.",
     covers: ["rest"],
     insight: GC(
       "Acts of service land as love when they are freely offered, not when they are a silent invoice.",
       "One small kindness, unnamed, if you feel like it. If not, rest anyway."
     ),
-    together: "Five minutes with a hot drink. No review of the week.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 3, day: 1, kind: "prompt", phase: "incident", owner: "tabby", core: true,
@@ -364,7 +364,7 @@ export const DAYS = [
       "Revisiting a rocky moment works when one person tells the scene from inside their experience, and the other does not correct the camera angle.",
       "Tell the scene in the order you remember it. You can stop in the middle and finish another day."
     ),
-    together: "When you stop writing, do not start a talk about it in the doorway. A quiet five minutes in the same house is enough.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 3, day: 2, kind: "prompt", phase: "incident", owner: "tabby", core: true,
@@ -376,19 +376,19 @@ export const DAYS = [
       "After a deep injury, the hurt person needs the impact believed before any talk of moving on is useful. Belief is not the same as agreeing on every detail.",
       "Write three effects you felt then. Leave his explanation out of it."
     ),
-    together: "A short body-settle: both of you, feet on the floor, three slow breaths, then leave the phones.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 3, day: 3, kind: "break", phase: "incident", owner: "both",
     title: "Set it down for a day",
-    breakNote: "The story can stay where you left it. Today is not for rereading it out loud. Be ordinary. Eat. Rest. If you feel raw, that is a reason to be kinder, not a reason to push.",
+    breakNote: "The story can stay where you left it. Today is not for going over it again. Be ordinary. Eat. Rest. If you feel raw, that is a reason to be kinder, not a reason to push.",
     why: "Heavy truth needs a day beside it where nothing else is asked.",
     covers: ["rest"],
     insight: HL(
       "People integrate hard truths in pauses, not only in talks. A day off is not avoidance when you have already told the truth.",
-      "Do one normal household thing together without mentioning this chapter."
+      "Do one ordinary thing on your own, and do not bring this chapter into it."
     ),
-    together: "Cook or reheat something simple and eat it without a screen.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 3, day: 4, kind: "prompt", phase: "incident", owner: "tabby", core: true,
@@ -400,7 +400,7 @@ export const DAYS = [
       "Unspoken hurt often turns into shame, the sense that you were too much for telling it. Saying it here is a way of putting it back outside your body.",
       "Write the sentence you wish had been heard the first time."
     ),
-    together: "Afterward, a twenty-second hug if you want one. No questions attached.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 3, day: 5, kind: "prompt", phase: "incident", owner: "tabby", core: true,
@@ -412,7 +412,7 @@ export const DAYS = [
       "Old injuries become raw spots. A small present moment can press them. The reaction is information, not proof that you are failing at getting over it.",
       "Name one way it shows up in an ordinary week. One is enough."
     ),
-    together: "Step outside or to a window for one minute of sky, together if you can.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 3, day: 6, kind: "date", phase: "incident", owner: "both",
@@ -425,7 +425,7 @@ export const DAYS = [
       "Closeness also needs air. A night with no emotional assignment can make room for warmth to return on its own.",
       "Do something easy. If either of you starts to process, you are allowed to say, not tonight, and keep the date kind."
     ),
-    together: "Phones in the basket before the date starts. Five minutes of nothing at the end.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 3, day: 7, kind: "break", phase: "incident", owner: "both",
@@ -437,7 +437,7 @@ export const DAYS = [
       "Repair attempts are any small move that says, we are still us. They work best when they are not a demand for the talk to be over.",
       "Offer a small kindness with no question attached."
     ),
-    together: "A phone-free meal, even if it is leftovers.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 4, day: 1, kind: "prompt", phase: "incident", owner: "tabby", sealsPhase: "incident", core: true,
@@ -449,7 +449,7 @@ export const DAYS = [
       "A hold-me-tight conversation ends with a clear reach: what I need when I am hurting is this. Specific, kind, and possible.",
       "Finish the sentence: when this pain is in the room, I need you to…"
     ),
-    together: "You have carried the heart of this path. Five quiet minutes. He does not debrief you.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 4, day: 2, kind: "break", phase: "heard", owner: "both",
@@ -461,7 +461,7 @@ export const DAYS = [
       "A useful response to hurt does not start with the responder's anxiety. It starts with what the other person actually said.",
       "Brandon, if you want one task, write down three things you heard, with no reply yet. Keep it for the next step."
     ),
-    together: "Be in the house kindly. Five minutes of a shared chore, then stop.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 4, day: 3, kind: "prompt", phase: "heard", owner: "brandon",
@@ -473,7 +473,7 @@ export const DAYS = [
       "A repair attempt can be as simple as 'I think I heard this. Did I?' It fails when it sneaks the defense in through the side door.",
       "Read your reflection once and delete every sentence that explains you. Keep the sentences that describe her."
     ),
-    together: "After she has said whether you got it, stop for the day. A short hug or a quiet drink.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 4, day: 4, kind: "prompt", phase: "heard", owner: "brandon",
@@ -485,7 +485,7 @@ export const DAYS = [
       "A real apology names the harm, does not smuggle in a 'but,' and does not ask the hurt person to hurry up and feel better.",
       "Write the part that is yours in one short paragraph. Read it. If you see a 'but,' take it out."
     ),
-    together: "Five minutes with no more words about it. Music or silence.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 4, day: 5, kind: "prompt", phase: "heard", owner: "brandon", sealsPhase: "heard",
@@ -497,7 +497,7 @@ export const DAYS = [
       "Turning toward is a habit of small responses. Grand promises impress less than one reliable behavior done again.",
       "Pick two behaviors you can do on a work week, not only on a free Sunday."
     ),
-    together: "Put the phones away and take a short walk, or sit on the same couch until a song ends.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 4, day: 6, kind: "date", phase: "heard", owner: "both",
@@ -510,7 +510,7 @@ export const DAYS = [
       "People receive love in different ways. A date works better when the person leading aims at what actually reaches the other, not only what would reach them.",
       "Ask, in one sentence, what would feel like care tonight. Then do a small version."
     ),
-    together: "Whoever is not leading leaves their phone in the basket first.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 4, day: 7, kind: "break", phase: "heard", owner: "both",
@@ -522,7 +522,7 @@ export const DAYS = [
       "Genuine forgiveness, if it comes, is slow. A day of not discussing it is not the same as pretending it is finished.",
       "Do something that belongs to ordinary life. Guard it from becoming a meeting."
     ),
-    together: "Last 15 minutes of the evening, phones down, if you are both home.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 5, day: 1, kind: "prompt", phase: "yourself", owner: "tabby",
@@ -534,7 +534,7 @@ export const DAYS = [
       "Desire and ease grow when each person still feels like a separate someone, not only a role. Feeling like yourself is part of wanting a life together.",
       "Describe one hour you felt like you. Include where you were and what Brandon was doing, if he was there."
     ),
-    together: "If that memory had a song, a food, or a place, touch a five-minute version of it.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 5, day: 2, kind: "prompt", phase: "yourself", owner: "tabby", sealsPhase: "yourself",
@@ -546,7 +546,7 @@ export const DAYS = [
       "Hiding is often a brilliant old strategy that became too small. You can thank it and still want a larger room.",
       "Name one place you edit yourself, and one sentence you would say if you did not."
     ),
-    together: "Eye contact for one slow breath, if that feels okay. If it does not, sit nearby instead.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 5, day: 3, kind: "break", phase: "yourself", owner: "both",
@@ -558,7 +558,7 @@ export const DAYS = [
       "Words of affirmation help when they are true and specific. They harm when they are used to rush someone past a real no.",
       "Brandon, if you offer a compliment today, make it about who she is, and do not attach a request."
     ),
-    together: "Five minutes of an ordinary pleasure, shared or side by side.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 5, day: 4, kind: "prompt", phase: "walls", owner: "tabby",
@@ -570,7 +570,7 @@ export const DAYS = [
       "Walls are often a protest that says, I will not be hurt in that way again, and also, I still need you. The wall and the need can sit in the same person.",
       "Write two sentences that are both true: what you have given, and what the wall is guarding."
     ),
-    together: "No demolition project. A calm five minutes. He does not suggest which brick to move.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 5, day: 5, kind: "prompt", phase: "walls", owner: "tabby", sealsPhase: "walls",
@@ -582,7 +582,7 @@ export const DAYS = [
       "Repair is usually a series of small bids answered well, not a single breakthrough. One brick is a bid you can see.",
       "Name one behavior, this month, that would help. Keep it observable."
     ),
-    together: "If you want, try the smallest version for five minutes. If you do not, have a phone-free cup of something.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 5, day: 6, kind: "date", phase: "walls", owner: "both",
@@ -595,7 +595,7 @@ export const DAYS = [
       "Play and ease are not a betrayal of the serious work. They remind the body that togetherness can be light.",
       "Choose the easiest idea in the date list. The leader keeps it easy."
     ),
-    together: "Basket for phones. Stop while it is still pleasant.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 5, day: 7, kind: "break", phase: "walls", owner: "both",
@@ -607,7 +607,7 @@ export const DAYS = [
       "You do not have to earn belonging by being easy to live with.",
       "Say, if it is true: we can rest with things unfinished."
     ),
-    together: "Last few minutes of the day, phones charging away from the bed if that is possible.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 6, day: 1, kind: "timeline", phase: "timeline", owner: "both", years: [2018, 2019],
@@ -619,7 +619,7 @@ export const DAYS = [
       "Love maps are the inner atlas of your partner's world and history. Building one is an act of attention, not an audit.",
       "Each of you adds at least one good memory and, if you want, one hard one. No correcting the other's memory."
     ),
-    together: "Look at one photo from those years if you have one, then put the phone away.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 6, day: 2, kind: "timeline", phase: "timeline", owner: "both", years: [2020, 2021],
@@ -631,19 +631,19 @@ export const DAYS = [
       "Attachment history does not pause for a ceremony. Naming what the early married years were actually like is part of making a safe bond now.",
       "Add one event each. If a year was mostly survival, say that in a sentence."
     ),
-    together: "If you want, play a song from that season for five minutes. If you do not, skip it freely.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 6, day: 3, kind: "break", phase: "timeline", owner: "both",
     title: "Come up from the years",
-    breakNote: "Looking back can ache. Today, stay in this week. Make a normal meal. Do not inventory the past on the couch unless you both want to.",
+    breakNote: "Looking back can ache. Today, stay in this week. Make a normal meal. You do not have to go through the past unless you want to, on your own phone.",
     why: "Memory work without a rest day becomes rumination.",
     covers: ["rest"],
     insight: G(
       "Fondness grows when you touch a good memory and then return to the present, instead of living only in the argument.",
       "Name one good thing from this actual week. Keep it small."
     ),
-    together: "Eat together, phones in another room.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 6, day: 4, kind: "timeline", phase: "timeline", owner: "both", years: [2022, 2023, 2024],
@@ -655,7 +655,7 @@ export const DAYS = [
       "Shared meaning is the story of what your life together is for. It includes the hard chapters without making them the only chapter.",
       "Each of you adds one turning point from these years, good or hard."
     ),
-    together: "A ten-minute walk, if the day allows, phones left inside.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 6, day: 5, kind: "timeline", phase: "timeline", owner: "tabby", sealsPhase: "timeline", years: [2025, 2026],
@@ -667,20 +667,20 @@ export const DAYS = [
       "A full account of a relationship after injury includes harm, effort, and what is still unfinished. Leaving one of those out makes the story untrustworthy.",
       "Tabby names the turning point. Brandon repeats it back in one sentence before he adds anything."
     ),
-    together: "Close the timeline for the night. Five minutes of something that belongs to this year, not to the past.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 6, day: 6, kind: "date", phase: "timeline", owner: "both",
-    title: "A good memory, in person",
-    dateTitle: "Echo a kind year",
-    lightPrompt: "Tell a good memory from the early years in a few sentences. It does not have to cancel a hard one.",
-    why: "Fondness is a practice. A date built from a real good memory is more personal than a generic night out.",
+    title: "A good memory, in writing",
+    dateTitle: "A kind year, when you want",
+    lightPrompt: "Write a good memory from the early years in a few sentences. It does not have to cancel a hard one. A date can wait.",
+    why: "Fondness can be written on your own phone. A date, if you want one later, does not hold up this step.",
     covers: ["date"],
     insight: G(
       "Sharing fondness is not denial of harm. Couples who can still tell a glad story have more ground to stand on when they repair.",
-      "Let the leader build a tiny echo of a good memory. Keep it cheap and short."
+      "Write the memory here. If you ever want a tiny echo of it, that can wait until you are both free."
     ),
-    together: "One photo for the album if you want, then the phones go away.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 6, day: 7, kind: "break", phase: "timeline", owner: "both",
@@ -692,7 +692,7 @@ export const DAYS = [
       "Quality time in the present is a love language of its own. The past does not get every evening.",
       "Spend five minutes on something that is only about today."
     ),
-    together: "First sip of a drink, together, no screens.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 7, day: 1, kind: "prompt", phase: "understanding", owner: "tabby",
@@ -708,7 +708,7 @@ export const DAYS = [
       "The sentence under 'you do not love me' is often 'I cannot find you when I reach.' Hearing the reach, not the protest costume, changes the reply.",
       "Write the feeling first. Add the scene only if you want to."
     ),
-    together: "No debate tonight. A short, quiet sit. He can say 'I read it' later, not in the doorway.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 7, day: 2, kind: "prompt", phase: "understanding", owner: "tabby", sealsPhase: "understanding",
@@ -720,7 +720,7 @@ export const DAYS = [
       "Accepting influence means her meaning changes what you do next. Understanding is not complete until it shows up as ownership.",
       "Brandon: reflect the arc in a few sentences, then one sentence of ownership, then stop."
     ),
-    together: "If the talk starts to heat up, pause. Five minutes apart, then a glass of water in the same room.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 7, day: 3, kind: "break", phase: "understanding", owner: "both",
@@ -732,7 +732,7 @@ export const DAYS = [
       "Being understood is not the same as being finished. Give the truth a day to be true without a new plan.",
       "Do not reopen the chapter today unless someone is in real distress. Even then, keep it short."
     ),
-    together: "A phone-free meal. Talk about the day, not the decade.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 7, day: 4, kind: "projects", phase: "money", owner: "tabby", sealsPhase: "money",
@@ -742,9 +742,9 @@ export const DAYS = [
     covers: ["money"],
     insight: G(
       "Some problems are perpetual. The goal is not to delete them. It is to talk about them without contempt, and to have a small system you both trust.",
-      "Choose one Now project together. Write the moment you will pause and talk before spending more. Put other ideas in Next or Someday, still alive, not cancelled."
+      "Each of you writes what would make one project feel like teamwork. Put other ideas in Next or Someday. You can read each other when the words arrive."
     ),
-    together: "Look at the list for five minutes, then leave it. Do not start the project tonight unless it is a cup of tea.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 7, day: 5, kind: "prompt", phase: "repair", owner: "tabby", sealsPhase: "repair",
@@ -756,32 +756,32 @@ export const DAYS = [
       "Cheap forgiveness skips the hurt to keep the peace. Genuine forgiveness is chosen by the hurt person, in their time. Acceptance is a third path when forgiveness is not available yet. All three are allowed to be named.",
       "Tabby writes what she releases, what she does not, and one thing that has felt good. Brandon names one behavior he will repeat this month."
     ),
-    together: "No altar, no big speech. Five quiet minutes. A hand to hold only if it is welcome.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 7, day: 6, kind: "date", phase: "repair", owner: "both",
-    title: "Teamwork, in person",
-    dateTitle: "One nice thing that does not cost a project",
-    lightPrompt: "What has felt like teamwork lately, even if it was small?",
-    why: "A shared errand or a cheap outing can prove the money talk was about partnership, not punishment.",
+    title: "Teamwork, on your own phones",
+    dateTitle: "One nice thing, when you have time",
+    lightPrompt: "What has felt like teamwork lately, even if it was small? Write it here. A date can wait.",
+    why: "Naming teamwork on your own phone is enough. An outing is optional and does not hold up this step.",
     covers: ["date"],
     insight: GC(
-      "Acts of service feel like love when they are chosen together. They feel like control when one person is managed.",
-      "Do one low-cost thing. The leader handles the friction. Keep the receipt small on purpose."
+      "Acts of service feel like love when each person chooses them. They feel like control when one person is managed.",
+      "Each of you writes one low-cost idea for later. Nobody has to do it today."
     ),
-    together: "Decide the date out loud, then put the phones in the basket.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 7, day: 7, kind: "break", phase: "repair", owner: "both",
     title: "Grace, without a lecture",
-    breakNote: "Grace here means the truth can be told and nobody keeps a ledger of who suffered more. Today, practice that by not keeping score out loud. Rest.",
+    breakNote: "Grace here means the truth can be told and nobody keeps a ledger of who suffered more. Today, rest. You do not keep score.",
     why: "A covenant is a way of staying, not a way of winning. Rest is part of staying.",
     covers: ["rest"],
     insight: HL(
       "Scorekeeping feels like justice and functions like a wall. You can remember the truth without running a tally.",
       "If a tally starts in your head, notice it and set it down. You do not have to announce it."
     ),
-    together: "A twenty-second hug, if you both want it, and then the evening can be ordinary.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 8, day: 1, kind: "prompt", phase: "worth", owner: "tabby",
@@ -793,7 +793,7 @@ export const DAYS = [
       "Worth is not something you earn by being easy to love. It is already there when the story is still complicated.",
       "List five strengths that would still be true if this incident had never happened."
     ),
-    together: "Read none of it aloud unless you want to. Take five minutes to do something that feels like you.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 8, day: 2, kind: "affirmations", phase: "worth", owner: "brandon", sealsPhase: "worth",
@@ -805,7 +805,7 @@ export const DAYS = [
       "Words of affirmation are one way love is heard. They work when they are specific and when the listener gets to receive them at her pace.",
       "Write three sentences. At least one should be about her as a mother or grandmother, in whatever way is true. She saves only what she wants."
     ),
-    together: "If she wants one sentence read aloud, read that one only. Then five quiet minutes.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 8, day: 3, kind: "break", phase: "worth", owner: "both",
@@ -817,7 +817,7 @@ export const DAYS = [
       "Rituals of connection are small ceremonies you repeat. They matter more when they are simple enough to actually do.",
       "Decide who will make the drink before tomorrow's ritual. That is the only plan."
     ),
-    together: "Phones down for the first or last 15 minutes you are both home.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 8, day: 4, kind: "ritual", phase: "closure", owner: "tabby",
@@ -827,21 +827,21 @@ export const DAYS = [
     covers: ["closure"],
     insight: JAS(
       "A closing worth trusting tells the truth about what is forgiven or released, what is still carried, and what behavior will be different. The hurt person decides the words.",
-      "Each of you write a short paragraph. Read them in the same room if you can, without adding a rebuttal."
+      "Each of you writes a short paragraph on your own phone. Read the other person's words when they arrive. No rebuttal."
     ),
-    together: "After you read, sit together for five minutes with nothing else required.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 8, day: 5, kind: "close", phase: "closure", owner: "both", sealsPhase: "closure",
     title: "We are closing this chapter",
-    prompt: "If you are both willing, mark that you are closing this chapter together. The record stays. You can add more later without starting over. A keepsake will remain here so you can revisit what you named.",
-    why: "A shared moment makes the closing real. It is a door you close together, not a feeling you must perform.",
+    prompt: "If you are willing, mark on your phone that you are closing this chapter. The other person marks when they are willing. The record stays. You can add more later without starting over.",
+    why: "Each of you closes it on your own phone, whenever you are ready. You do not have to be with each other to do that.",
     covers: ["closure"],
     insight: SJ(
       "Forgiving injuries, in a bond, is a conversation you return to, not a switch. Closing a chapter means the story has been told and heard, and you know where to find it.",
       "Each of you taps only if it is true. If it is not true yet, wait. Waiting does not erase what you wrote."
     ),
-    together: "When you have both marked it, put the phones down and have the keepsake evening be mostly offline.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 8, day: 6, kind: "date", phase: "closure", owner: "both",
@@ -854,7 +854,7 @@ export const DAYS = [
       "Marking a transition with a small ritual helps a couple remember they are on the same side.",
       "A dessert, a drive, or a stay-home evening. The leader keeps it light. No speeches required."
     ),
-    together: "One photo for the album if you want one. Then the basket.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
   day({
     week: 8, day: 7, kind: "forward", phase: "forward", owner: "both", sealsPhase: "forward",
@@ -864,9 +864,9 @@ export const DAYS = [
     covers: ["forward"],
     insight: G(
       "What predicts a sturdy marriage is not the absence of injury. It is the habit of turning toward, repairing, and coming back to the same friendship.",
-      "Write your first step on a card or in this day. Then go be together for five minutes with the phones in another room."
+      "Write your first step here, on your own phone. Then you can close the app. The words will still be here."
     ),
-    together: "Put the phone down and go be together. Five minutes. The app will still be here.",
+    together: "When you finish on your phone, you can stop. You do not need to be in the same place.",
   }),
 ];
 

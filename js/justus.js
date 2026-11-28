@@ -5,7 +5,7 @@
  */
 
 export const INTRO =
-  "This room is optional. Nothing in it is expected, tracked, or owed. It is for a married couple who want closeness to feel safer, especially when Tabby wants to set the pace or take the lead. No is a complete answer. Maybe means not tonight.";
+  "This room is optional, and it is not a step. Nothing in it is expected, tracked, or owed. Use it only when you are both free and you both want to. Tabby sets the pace. No is a complete answer. Maybe means not now.";
 
 export const IDEAS = [
   {

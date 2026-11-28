@@ -40,11 +40,11 @@ One step shows at a time. Tabby writes first on her steps, and Brandon cannot re
 
 There is a calming minute and a short verse in the ESV before the words. Anything still in progress is a draft. It autosaves, and it is scrambled so the other phone cannot read it, even after a sync. Tap **Mark finished** when you want them to see it. That copy is read-only and timestamped, and only then can they respond.
 
-When the step is done, Closer asks you to put the phone down and spend five minutes together. If the app is installed on your home screen, it can notify you when it is your turn. Open the app, or leave it in the background, and it checks for finished words every half minute. The partner card only says things like “Tabby is writing” or “Waiting on you.” It never shows a draft.
+When your part of a step is done, you can stop. The other person answers when they can. You do not have to be in the same place. If the app is installed on your home screen, it can notify you when it is your turn. Open the app, or leave it in the background, and it checks for finished words every half minute.
 
-**Be present** is a shared goal for both of you: one small phone-free challenge a day. A missed day is just a missed day.
+**Phone down** is optional and solo: one small break from your own phone. A missed day is just a missed day. It does not hold up a step.
 
-**Date nights** follow Brandon’s nights at GE Aerospace. Short dates land before a weekend night shift. Longer dates and about one overnight a month land on nights off. Change the nights in Settings when overtime moves them. Whoever leads that date plans it and takes charge.
+**Date nights** are ideas for when you both have time. They never hold up a step. Short ideas fit before a weekend night shift. Longer ones fit nights off. Change the nights in Settings when overtime moves them.
 
 **Just Us** is optional, behind an extra tap, and never put on the schedule unless you add it.
 

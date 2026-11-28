@@ -574,6 +574,7 @@ export function exerciseRevealed(rec) {
 
 export function currentIndex(state, days) {
   for (let i = 0; i < days.length; i++) {
+    if (days[i].kind === "date") continue;
     if (!isDayComplete(state.days?.[days[i].id], days[i], state)) return i;
   }
   return days.length;
@@ -1016,7 +1017,7 @@ export function calendarItems(iso, state, days = []) {
   if (state.presence?.[iso]) {
     items.push({
       type: "presence",
-      title: "Present together",
+      title: "Phone down",
       detail: state.presence[iso].title || "Phone-free time",
       id: iso,
     });
@@ -1062,7 +1063,7 @@ export function ensureClosureMilestone(state) {
     year,
     annual: false,
     kind: "milestone",
-    note: "You closed this chapter together.",
+    note: "You both marked this chapter closed.",
     system: true,
     updatedAt: now(),
   });

@@ -1,60 +1,60 @@
-/** Shared Be Present challenges. Written to both of them, never to one person. */
+/** Phone-down ideas each person can do alone. Never a step in the path. */
 
 export const INTRO =
-  "A shared goal for both of you: more minutes when the phones are down and you are actually with each other. Nobody is the distracted one. You live in the same house as these devices. A missed day is just a missed day, not a debt.";
+  "This is optional, and it is yours alone. Put your own phone down for a few minutes when you can. You do not have to be in the same place, and a missed day is not a debt.";
 
 export const CHALLENGES = [
   {
     id: "meal",
-    title: "A phone-free meal",
-    detail: "One meal together, both phones in another room. Talk about anything ordinary. The food can be simple.",
+    title: "One meal without your phone",
+    detail: "Eat one meal with your phone in another room, even if you are eating alone. Ordinary food is enough.",
   },
   {
     id: "basket",
-    title: "A phone basket",
-    detail: "Put a basket or bowl out for the stretch of time you are together. Both phones go in. Either of you can set it out.",
+    title: "Your phone, out of reach",
+    detail: "For a little while, leave your phone in a drawer or another room. You do not need anyone else to do it with you.",
   },
   {
     id: "first15",
     title: "The first 15 minutes",
-    detail: "The first 15 minutes you are both home and awake, the phones stay down. Coffee counts.",
+    detail: "The first 15 minutes you are awake and free, leave your phone down. Coffee counts.",
   },
   {
     id: "last15",
     title: "The last 15 minutes",
-    detail: "The last 15 minutes before one of you sleeps, phones charge outside the room if you can. If not, face-down in a drawer is enough.",
+    detail: "The last 15 minutes before you sleep, charge the phone away from your hand if you can.",
   },
   {
     id: "eyes",
-    title: "An eye-contact check-in",
-    detail: "Sixty seconds, face to face. One question between you: how is your heart right now? Then you can stop.",
+    title: "One quiet check-in with yourself",
+    detail: "Sixty seconds. Ask yourself: how is my heart right now? Then you can stop.",
   },
   {
     id: "walk",
-    title: "A short walk, phones left inside",
-    detail: "Ten minutes outside or down the hall and back. No podcast, no map. Just the walk.",
+    title: "A short walk, phone left inside",
+    detail: "Ten minutes outside, or down the hall and back. No podcast. Just the walk.",
   },
   {
     id: "hour",
     title: "One hour in another room",
-    detail: "Both devices live in another room for one hour of your evening. A timer in the kitchen is allowed. Scrolling is not.",
+    detail: "Leave your phone in another room for one hour of your evening. A kitchen timer is fine.",
   },
   {
     id: "coffee",
     title: "Coffee without a screen",
-    detail: "The first cup, together or overlapping, with no screen in hand. Looking at each other once is enough.",
+    detail: "The first cup, with no screen in your hand. You can be alone for it.",
   },
 ];
 
 export const RECONNECT = [
-  { id: "hug", title: "Twenty-second hug", detail: "Phones in pockets, not in hands. Stay for one slow breath longer than usual." },
-  { id: "breath", title: "Three shared breaths", detail: "Stand or sit close. Breathe in together, out together, three times. Then carry on." },
-  { id: "knee", title: "Knee to knee", detail: "One ordinary sentence each about the day. No fixing." },
-  { id: "water", title: "A glass of water", detail: "Hand the other a glass and stay through the first sip." },
-  { id: "sky", title: "One minute of sky", detail: "Step to a window or the porch. Look up, not at a screen." },
-  { id: "specific", title: "One specific thanks", detail: "Name one small thing the other did in the last day. Keep it concrete." },
-  { id: "breath-eyes", title: "One breath of eye contact", detail: "As long as a slow exhale. A smile if it is there. No performance." },
-  { id: "question", title: "One question, phones elsewhere", detail: "Basket first. Then: what would make the rest of today feel kinder?" },
+  { id: "note", title: "One kind sentence", detail: "Write one ordinary kind sentence. Send it only if you want. No reply is required." },
+  { id: "breath", title: "Three slow breaths", detail: "On your own, breathe in and out three times. Then carry on." },
+  { id: "water", title: "A glass of water", detail: "Drink a glass of water away from your phone." },
+  { id: "sky", title: "One minute of sky", detail: "Step to a window. Look up, not at a screen." },
+  { id: "specific", title: "One specific thanks", detail: "Name one small thing the other person did. You can write it here and they will see it when they open the app." },
+  { id: "pause", title: "One pause", detail: "Set the phone down for as long as one slow breath. Then pick it up if you need it." },
+  { id: "question", title: "One question, for later", detail: "Write one gentle question. It can wait until the other person has time." },
+  { id: "music", title: "One song, just for you", detail: "Play one song all the way through. No second screen." },
 ];
 
 export function hashISO(iso) {
@@ -73,11 +73,11 @@ export function reconnectFor(iso, count = 3) {
 }
 
 export const TOGETHER_FALLBACK = [
-  "Sit together for five minutes with both phones in another room. You do not have to talk the whole time.",
-  "Make two drinks and drink the first sip in the same room, screens down.",
-  "Step outside or to a window and name one thing you both see.",
-  "A twenty-second hug, then one ordinary sentence about the day.",
-  "Put the phones in a basket and play one song all the way through.",
+  "Put your own phone down for five minutes. You do not have to be with anyone.",
+  "Make a drink and take the first sip away from a screen.",
+  "Step to a window and name one thing you see.",
+  "Write one ordinary sentence about your day, then stop.",
+  "Play one song all the way through, just for you.",
 ];
 
 export function fallbackTogether(index = 0) {

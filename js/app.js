@@ -7,7 +7,7 @@ import { allIdeas, ideaById, LENGTHS, SETTINGS, WHEN_LABEL, LEADER_NOTE } from "
 import { allIdeas as justIdeas, INTRO as JUST_INTRO, PROMPTS as JUST_PROMPTS, LIST as JUST_LIST } from "./justus.js";
 import { INTRO as BE_INTRO, challengeFor, reconnectFor } from "./presence.js";
 
-const APP_VERSION = "8";
+const APP_VERSION = "9";
 
 const app = {
   settings: db.loadSettings(),
@@ -335,8 +335,15 @@ function viewToday() {
   return simpleStep(def, rec);
 }
 
+function nextRequired(def) {
+  for (let i = def.index + 1; i < DAYS.length; i++) {
+    if (DAYS[i].kind !== "date") return DAYS[i];
+  }
+  return null;
+}
+
 function keptView(def) {
-  const next = DAYS[def.index + 1];
+  const next = nextRequired(def);
   return `<div class="view" data-day="${def.id}">
     <h1>Step kept.</h1>
     <p class="lede">Next step opens tomorrow.</p>
@@ -362,7 +369,7 @@ function stepInner(def, rec) {
   if (turn.code === "done" || logic.isDayComplete(record, def, app.state)) {
     return `<h1>Step kept.</h1><p class="lede">Next step opens tomorrow.</p><button class="primary full" type="button" data-action="continue" data-day="${def.id}">Start the next step now</button>${leftCard(def, record)}`;
   }
-  const instruction = def.kind === "break" ? def.breakNote : def.prompt || "A little is enough.";
+  const instruction = def.kind === "break" ? def.breakNote : def.kind === "date" ? (def.lightPrompt || "Optional. Write if you want.") : (def.prompt || "A little is enough.");
   return `<h1>${esc(def.title)}</h1>
     <p class="lede">${esc(instruction)}</p>
     ${kindBody(def, record)}
@@ -458,11 +465,12 @@ function answerEditor(dayId, who, answer, label, starters) {
 
 function bothAnswers(def, rec) {
   const order = def.owner === "brandon" ? ["brandon", "tabby"] : ["tabby", "brandon"];
+  const either = def.owner === "both";
   return order
     .map((who) => {
       const first = order[0];
-      if (who !== first && !logic.textDone(rec[first]) && profile() === who) {
-        return `<div class="note"><p>This opens when ${esc(cap(first))} has marked theirs finished.</p></div>`;
+      if (!either && who !== first && !logic.textDone(rec[first]) && profile() === who) {
+        return `<div class="note"><p>This opens when ${esc(cap(first))} has marked theirs finished. You can do it whenever their words arrive.</p></div>`;
       }
       return answerEditor(def.id, who, rec[who], cap(who), def.starters?.[who]);
     })
@@ -565,16 +573,7 @@ function rateBtns(day, field, current) {
 }
 
 function dateBody(def, rec) {
-  const plan = Object.values(app.state.datePlans || {}).find((p) => p.workbookDayId === def.id);
-  const idea = plan ? ideaById(plan.ideaId, app.state.customIdeas) : null;
-  return `<p class="lede">${esc(def.dateTitle || "")}</p>
-    <p>${esc(def.lightPrompt || "")}</p>
-    ${
-      idea
-        ? `<div class="note"><strong>${esc(idea.title)}</strong><p>${esc(plan.leader === "brandon" ? "Brandon" : "Tabby")} leads · ${esc(plan.date || "")}</p></div>`
-        : `<p class="quiet">Pick an idea that fits his nights at work. Short dates before a shift. Longer ones on days off.</p><button class="soft" type="button" data-go="#/dates">Open date nights</button>`
-    }
-    ${bothAnswers(def, rec)}`;
+  return `<p class="quiet">Optional. A date can wait until you both have time. It does not hold up the next step.</p>${bothAnswers(def, rec)}`;
 }
 
 function timelineMini(def) {
@@ -634,9 +633,11 @@ function viewPath() {
     const days = DAYS.filter((d) => d.phase === phase.id);
     const rows = days
       .map((d) => {
-        const done = logic.isDayComplete(app.state.days[d.id], d, app.state);
-        const now = DAYS[idx]?.id === d.id;
-        return `<button class="day-row" type="button" data-go="#/path/${d.id}"><span><strong>${esc(d.title)}</strong><br><small>${done ? "Kept" : now ? "Today" : "Ahead"}</small></span>${d.core ? `<span class="heart">Heart</span>` : ""}</button>`;
+        const optional = d.kind === "date";
+        const done = !optional && logic.isDayComplete(app.state.days[d.id], d, app.state);
+        const now = !optional && DAYS[idx]?.id === d.id;
+        const label = optional ? "When you want" : done ? "Kept" : now ? "Today" : "Ahead";
+        return `<button class="day-row" type="button" data-go="#/path/${d.id}"><span><strong>${esc(d.title)}</strong><br><small>${label}</small></span>${d.core ? `<span class="heart">Heart</span>` : ""}</button>`;
       })
       .join("");
     return `<section class="phase" id="phase-${phase.id}"><p class="kicker">${esc(phase.title)}</p><p class="quiet">${esc(phase.blurb)}</p>${rows}</section>`;
@@ -650,7 +651,7 @@ function viewDayRead(id) {
   if (!def) return `<div class="view">${back}<p>That step is not here.</p></div>`;
   const idx = logic.currentIndex(app.state, DAYS);
   const rec = app.state.days[def.id] || {};
-  if (def.index > idx) {
+  if (def.kind !== "date" && def.index > idx) {
     return `<div class="view" data-day="${def.id}">${back}<h1>${esc(def.title)}</h1><p class="lede">This step is not open yet.</p></div>`;
   }
   if (!logic.isDayComplete(rec, def, app.state)) {
@@ -696,7 +697,7 @@ function viewWords() {
   return `<div class="view"><h1>Words</h1>
     <button class="choice" type="button" data-go="#/journal"><strong>Open journal</strong><span>Get it all out. Private, unless you share it.</span></button>
     <button class="choice" type="button" data-go="#/ask"><strong>Ask Brandon</strong><span>${openQ ? `${openQ} still open` : "A question, any time, kept forever."}</span></button>
-    <button class="choice" type="button" data-go="#/presence"><strong>Be present</strong><span>A shared phone-free goal. For both of you.</span></button>
+    <button class="choice" type="button" data-go="#/presence"><strong>Phone down</strong><span>Optional. On your own. It does not hold up a step.</span></button>
   </div>`;
 }
 
@@ -822,7 +823,7 @@ function viewDates() {
     )
     .join("");
   return `<div class="view"><h1>Date nights</h1>
-    <p class="lede">Something small most days. Bigger dates on nights he is off. Overnights about monthly, never bumped into a shift.</p>
+    <p class="lede">Ideas for when you both have time. They never hold up a step. Brandon’s weekend nights and Tabby’s days with a child come first.</p>
     <p class="quiet">${esc(app.state.schedule.shiftLabel)}. Change the nights in Settings if overtime moves them.</p>
     ${cards}
     <h2>Library</h2>
@@ -862,7 +863,7 @@ function viewCalendar() {
     .join("");
   return `<div class="view"><div class="row" style="justify-content:space-between"><button class="text-btn" type="button" data-action="month" data-dir="-1">Back</button><h1>${head}</h1><button class="text-btn" type="button" data-action="month" data-dir="1">Next</button></div>
     <div class="cal">${["S","M","T","W","T","F","S"].map((d) => `<span class="dow">${d}</span>`).join("")}${grid}</div>
-    <p class="quiet small">Rose is a date, green is time you were present together, gold is a celebration. Shaded days are work nights. A quiet day is not a missed streak.</p>
+    <p class="quiet small">Rose is a date idea, green is a phone-down minute, gold is a celebration. Shaded days are work nights. A quiet day is not a missed streak.</p>
     <button class="ghost" type="button" data-action="add-celebration">Add a celebration</button></div>`;
 }
 
@@ -901,15 +902,15 @@ function viewPresence() {
     ${presenceCard(false)}
     <h2>If you have one minute</h2>
     ${ideas.map((idea) => `<article class="card"><h3>${esc(idea.title)}</h3><p>${esc(idea.detail)}</p></article>`).join("")}
-    <p class="quiet">One is enough. ${done ? "Today is already marked, together." : "You can mark the day’s challenge from here or from the closing screen."}</p></div>`;
+    <p class="quiet">One is enough. ${done ? "You already marked today." : "You can mark it here. It does not hold up a step."}</p></div>`;
 }
 
 function presenceCard() {
   const today = logic.todayISO();
   const challenge = challengeFor(today);
   const done = app.state.presence?.[today];
-  return `<div class="card"><p class="kicker">Today, together</p><h2>${esc(challenge.title)}</h2><p>${esc(challenge.detail)}</p>
-    ${done ? `<p class="pill sage">Present together</p>` : `<button class="primary" type="button" data-action="present" data-id="${challenge.id}" data-title="${esc(challenge.title)}">We did this</button>`}
+  return `<div class="card"><p class="kicker">On your own</p><h2>${esc(challenge.title)}</h2><p>${esc(challenge.detail)}</p>
+    ${done ? `<p class="pill sage">Marked</p>` : `<button class="primary" type="button" data-action="present" data-id="${challenge.id}" data-title="${esc(challenge.title)}">I did this</button>`}
   </div>`;
 }
 
@@ -983,7 +984,7 @@ function viewKeepsake() {
     <article class="card"><h2>Released, and not yet</h2><p>${nl(c.released || "")}</p></article>
     <article class="card"><h2>What Brandon is putting down</h2><p>${nl(c.brandonHeard || "")}</p></article>
     <article class="card"><h2>Saved words</h2>${lines.map((a) => `<p>${nl(a.text)}</p>`).join("") || `<p class="quiet">None saved yet.</p>`}</article>
-    ${c.tabbyClosed && c.brandonClosed ? `<p class="pill sage">You closed this chapter together</p>` : `<p class="quiet">The closing moment appears when you both mark it.</p>`}
+    ${c.tabbyClosed && c.brandonClosed ? `<p class="pill sage">You both marked this chapter closed</p>` : `<p class="quiet">Each of you marks this on your own phone, whenever you are ready.</p>`}
   </div>`;
 }
 
