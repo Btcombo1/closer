@@ -7,7 +7,7 @@ import { allIdeas, ideaById, LENGTHS, SETTINGS, WHEN_LABEL, LEADER_NOTE } from "
 import { allIdeas as justIdeas, INTRO as JUST_INTRO, PROMPTS as JUST_PROMPTS, LIST as JUST_LIST } from "./justus.js";
 import { INTRO as BE_INTRO, challengeFor, reconnectFor } from "./presence.js";
 
-const APP_VERSION = "7";
+const APP_VERSION = "8";
 
 const app = {
   settings: db.loadSettings(),
@@ -20,7 +20,14 @@ const app = {
   photoUrls: {},
   saveTimer: null,
   editSeq: 0,
+  guideStep: 0,
+  showGuide: false,
+  addingPhase: "",
+  painted: "",
+  heldOffline: false,
 };
+
+let renderTick = 0;
 
 const $ = (html) => html;
 const esc = (s) =>
@@ -95,13 +102,21 @@ function otherName() {
 }
 
 async function render() {
+  const tick = ++renderTick;
   routeFromHash();
   const root = document.getElementById("app");
   const onboard = !profile();
   const setup = !onboard && !app.settings.setupDone && !app.settings.skipSync;
-  const rest = !onboard && !setup && app.route === "today" && restDay();
-  root.className = "app" + (onboard || setup || rest || app.route === "rest" ? " solo" : "");
-  root.innerHTML = onboard ? viewOnboard() : setup ? viewSetup() : shell(await body());
+  const teaching = !onboard && !setup && (!app.settings.seenGuide || app.showGuide);
+  root.className = "app" + (onboard || setup || teaching ? " solo" : "");
+  const html = onboard ? viewOnboard() : setup ? viewSetup() : shell(await body());
+  if (tick !== renderTick) return;
+  root.innerHTML = html;
+  const place = `${app.route}:${app.param}`;
+  if (place !== app.painted) {
+    app.painted = place;
+    window.scrollTo(0, 0);
+  }
   document.getElementById("splash")?.classList.add("hide");
   if (app.focusSyncKey) {
     const field = document.getElementById("sync-key") || document.getElementById("setup-token");
@@ -125,9 +140,13 @@ function updateBanner() {
   return `<div class="banner"><strong>Version ${APP_VERSION} is ready.</strong><p>Tap update so both of you are on the same app.</p><button class="primary" type="button" data-action="update-now">Update now</button></div>`;
 }
 
+function teachingNow() {
+  return (!app.settings.seenGuide || app.showGuide) && profile() && (app.settings.setupDone || app.settings.skipSync);
+}
+
 function shell(inner) {
-  if (app.route === "today" && restDay()) return `${updateBanner()}${inner}`;
-  return `${updateBanner()}${topbar()}${inner}${nav()}${app.sheet || ""}${app.calming ? calmingOverlay() : ""}`;
+  if (teachingNow()) return `${updateBanner()}${inner}`;
+  return `${updateBanner()}${offlineLine()}${errorBanner()}${topbar()}${inner}${nav()}${app.sheet || ""}${app.calming ? calmingOverlay() : ""}`;
 }
 
 function syncLabel() {
@@ -146,17 +165,19 @@ function syncStatusBlock() {
   return `<div class="sync-result"><p class="${syncIsError(note) ? "sync-error" : "quiet"}" data-sync-note>${esc(note)}</p><button class="text-btn" type="button" data-action="open-sync-key">Change key</button></div>`;
 }
 
-function topbar() {
-  return `<header class="top"><div class="brand">Closer</div><button class="sync-note" type="button" data-action="sync" data-sync-note>${esc(syncLabel())}</button></header>${turnBanner()}`;
+function offlineLine() {
+  if (navigator.onLine && !app.heldOffline) return "";
+  return `<p class="offline-line">Saved on phone, will send when you have signal</p>`;
 }
 
-function turnBanner() {
-  if (app.banner) return `<div class="banner"><strong>Your turn</strong><p>${esc(app.banner)}</p></div>`;
-  if (yourTurnNow()) {
-    const def = DAYS[logic.currentIndex(app.state, DAYS)];
-    return `<div class="banner"><strong>Your turn</strong><p>${esc(def?.title || "This step is yours.")}</p></div>`;
-  }
-  return "";
+function errorBanner() {
+  const note = app.settings.lastSyncNote || "";
+  if (!syncIsError(note) || app.syncing) return "";
+  return `<div class="banner"><p>${esc(note)}</p><button class="primary" type="button" data-action="open-sync-key">Open settings</button></div>`;
+}
+
+function topbar() {
+  return `<header class="top"><div class="brand">Closer</div></header><p class="sr" data-sync-note>${esc(syncLabel())}</p>${app.banner ? `<div class="banner"><p>${esc(app.banner)}</p></div>` : ""}`;
 }
 
 function partnerCard(def, rec) {
@@ -243,6 +264,7 @@ function restDay() {
 }
 
 async function body() {
+  if (teachingNow()) return guideView();
   switch (app.route) {
     case "path":
       return app.param ? viewDayRead(app.param) : viewPath();
@@ -304,78 +326,64 @@ function progress() {
 
 function viewToday() {
   const rest = restDay();
-  if (rest) return restView(rest);
+  if (rest) return keptView(rest);
   const idx = logic.currentIndex(app.state, DAYS);
   if (idx >= DAYS.length) return allDone();
   const def = DAYS[idx];
   const rec = app.state.days[def.id] || {};
-  const turn = logic.turnState(def, rec, profile(), app.state);
   if (rec.paused) return pausedView(def);
-  if (turn.code === "waiting") return waitingView(def, turn);
-  return workView(def, rec, turn);
+  return simpleStep(def, rec);
 }
 
-function restView(def) {
-  return `<div class="view rest">
-    <p class="kicker">That’s enough for now</p>
-    <h1>Now put the phone down and go be together.</h1>
-    <p class="lede">${esc(def.together || "Five minutes, phones in another room.")}</p>
-    <p class="quiet">Five minutes. Then you are done with Closer for today.</p>
-    <div class="card">${presenceCard(true)}</div>
-    <button class="primary full" type="button" data-action="leave">We’re going</button>
-    <button class="text-btn" type="button" data-action="continue">We have a little more time</button>
-  </div>`;
-}
-
-function waitingView(def, turn) {
-  const hers = profile() === "brandon" && (def.owner || "tabby") !== "brandon";
-  const copy = hers
-    ? "Tabby is writing in her own time. You do not need to check or hurry. If you want to be kind without asking for an update, you can be in the same room without opening the topic."
-    : `You’ve done your part for now. You can put the phone down. ${otherName()} will answer when they open Closer.`;
-  return `<div class="view">
-    ${partnerCard(def, app.state.days[def.id] || {})}
+function keptView(def) {
+  const next = DAYS[def.index + 1];
+  return `<div class="view" data-day="${def.id}">
+    <h1>Step kept.</h1>
+    <p class="lede">Next step opens tomorrow.</p>
+    ${next ? `<p>${esc(next.title)}</p>` : ""}
+    <button class="primary full" type="button" data-action="continue" data-day="${def.id}">Start the next step now</button>
     ${leftCard(def, app.state.days[def.id] || {})}
-    ${progress()}
-    <p class="pill wait">${esc(turn.label)}</p>
-    <h1>${esc(def.title)}</h1>
-    <p class="lede">${esc(copy)}</p>
-    <div class="card"><p>${esc(def.together || "")}</p></div>
-    <button class="primary full" type="button" data-action="leave">Put the phone down</button>
-    <button class="ghost full" type="button" data-go="#/path">See the path</button>
   </div>`;
+}
+
+function simpleStep(def, rec) {
+  return `<div class="view" data-day="${def.id}">${stepInner(def, rec)}</div>`;
+}
+
+function stepInner(def, rec) {
+  const record = rec || {};
+  const turn = logic.turnState(def, record, profile(), app.state);
+  if (record.paused || turn.code === "paused") {
+    return `<h1>${esc(def.title)}</h1><p class="lede">This step is paused. Come back when you want.</p><button class="primary full" type="button" data-action="resume" data-day="${def.id}">Come back</button>${leftCard(def, record)}`;
+  }
+  if (turn.code === "waiting") {
+    return `<h1>You're done for today.</h1><p class="lede">Waiting on ${esc(otherName())}.</p>${leftCard(def, record)}`;
+  }
+  if (turn.code === "done" || logic.isDayComplete(record, def, app.state)) {
+    return `<h1>Step kept.</h1><p class="lede">Next step opens tomorrow.</p><button class="primary full" type="button" data-action="continue" data-day="${def.id}">Start the next step now</button>${leftCard(def, record)}`;
+  }
+  const instruction = def.kind === "break" ? def.breakNote : def.prompt || "A little is enough.";
+  return `<h1>${esc(def.title)}</h1>
+    <p class="lede">${esc(instruction)}</p>
+    ${kindBody(def, record)}
+    ${sealOffer(def, record)}
+    ${leftCard(def, record)}
+    <button class="text-btn" type="button" data-action="pause" data-day="${def.id}">Pause</button>`;
+}
+
+function guideView() {
+  const step = Math.min(app.guideStep || 0, 2);
+  const cards = [
+    ["One step at a time", "You will see one thing to do. Write a little. Tap I’m finished. The other person cannot read it until then."],
+    ["No signal is fine", "Your words stay on this phone. They send when you have signal. You do not sign in again."],
+    ["You can stop", "When a step is kept, you are done for today. Tomorrow opens the next one. Or you can start it now."],
+  ];
+  const [title, text] = cards[step];
+  return `<div class="view guide"><p class="kicker">How Closer works · ${step + 1} of 3</p><h1>${esc(title)}</h1><p class="lede">${esc(text)}</p><button class="primary full" type="button" data-action="guide-next">${step === 2 ? "Start" : "Next"}</button></div>`;
 }
 
 function pausedView(def) {
-  return `<div class="view">
-    <p class="pill">Paused, with no penalty</p>
-    <h1>${esc(def.title)}</h1>
-    <p class="lede">This day is resting. Nothing is wrong, and nothing is being counted. Come back when it feels kinder.</p>
-    <button class="primary full" type="button" data-action="resume" data-day="${def.id}">Come back gently</button>
-  </div>`;
-}
-
-function workView(def, rec, turn) {
-  const week = weekOf(def);
-  return `<div class="view">
-    ${partnerCard(def, rec)}
-    ${leftCard(def, rec)}
-    ${progress()}
-    <p class="kicker">Week ${def.week} · ${esc(week?.theme || "")}</p>
-    ${def.core ? `<p class="heart">The heart of this path</p>` : ""}
-    <h1>${esc(def.title)}</h1>
-    <p class="pill ${turn.code === "your-turn" ? "rose" : "sage"}">${esc(turn.label)}</p>
-    ${calmingCard(def)}
-    ${verseCard(def)}
-    <div class="card ${def.core ? "core" : ""}">
-      ${def.prompt ? `<p class="lede">${esc(def.prompt)}</p>` : ""}
-      ${def.why ? `<p class="quiet"><strong>Why this question. </strong>${esc(def.why)}</p>` : ""}
-      ${kindBody(def, rec)}
-      ${sealOffer(def, rec)}
-      <p class="quiet small">If this gets heated, pause and come back. Your words stay saved.</p>
-      <button class="text-btn" type="button" data-action="pause" data-day="${def.id}">I need a pause</button>
-    </div>
-    ${insightCard(def)}
-  </div>`;
+  return simpleStep(def, app.state.days[def.id] || {});
 }
 
 function calmingCard(def) {
@@ -433,7 +441,7 @@ function answerEditor(dayId, who, answer, label, starters) {
   const mine = profile() === who;
   const view = logic.answerView(answer, profile(), who);
   if (!mine && view.state !== "visible") {
-    const text = answer?.private || answer?.ct ? `${cap(who)} is writing. You will see it when they tap Mark finished.` : "Nothing here yet.";
+    const text = answer?.private || answer?.ct ? `${cap(who)} is writing. You will see it when they tap I’m finished.` : "Nothing here yet.";
     return `<div class="note"><strong>${esc(label)}</strong><p>${text}</p></div>`;
   }
   if (!mine && view.state === "visible") {
@@ -444,9 +452,8 @@ function answerEditor(dayId, who, answer, label, starters) {
     ${finishedBadge(answer)}
     <textarea data-save="answer" data-day="${dayId}" data-who="${who}" ${done ? "readonly" : ""}>${esc(answer?.text || "")}</textarea>
   </label>
-  ${done ? `<p class="quiet small">Saved ${esc(answer?.finishedAt ? "and sealed" : "")}. ${cap(who === "tabby" ? "brandon" : "tabby")} can read this now.</p>` : `<div class="chips">${(starters || []).map((s) => `<button type="button" class="chip" data-action="starter" data-day="${dayId}" data-who="${who}">${esc(s)}</button>`).join("")}</div>
-  <p class="quiet small">${who === "brandon" ? "A shape that helps: what you heard, why it makes sense, your part, what you want her to know. " : ""}Autosaved on this phone. It stays hidden until you mark it finished.</p>
-  <button class="primary" type="button" data-action="finish" data-day="${dayId}" data-who="${who}">Mark finished</button>`}`;
+  ${done ? `<p class="quiet small">${cap(who === "tabby" ? "brandon" : "tabby")} can read this now.</p>` : `<p class="quiet small">Only you can see this until you tap I’m finished.</p>
+  <button class="primary full" type="button" data-action="finish" data-day="${dayId}" data-who="${who}">I’m finished</button>`}`;
 }
 
 function bothAnswers(def, rec) {
@@ -478,16 +485,15 @@ function partsBody(def, rec) {
       return `<label><strong>${esc(part.prompt)}</strong>
         ${finishedBadge(answer)}
         <textarea data-save="part" data-day="${def.id}" data-part="${part.id}" ${done ? "readonly" : ""}>${esc(answer?.text || "")}</textarea></label>
-        ${done ? "" : `<button class="primary" type="button" data-action="finish-part" data-day="${def.id}" data-part="${part.id}">Mark finished</button>`}`;
+        ${done ? "" : `<button class="primary full" type="button" data-action="finish-part" data-day="${def.id}" data-part="${part.id}">I’m finished</button>`}`;
     })
     .join("");
 }
 
 function breakBody(def, rec) {
   const mine = logic.ackOn(rec.ack?.[profile()]);
-  return `<p class="lede">${esc(def.breakNote)}</p>
-    ${mine ? `<p class="pill sage">You took this rest</p>` : `<button class="primary" type="button" data-action="ack" data-day="${def.id}">I’m taking this rest</button>`}
-    <p class="quiet">${rec.ack?.tabby && rec.ack?.brandon ? "You both rested." : "The other person can mark this whenever. There is no clock."}</p>`;
+  return `${mine ? `<p class="pill sage">You took this rest</p>` : `<button class="primary full" type="button" data-action="ack" data-day="${def.id}">I took this rest</button>`}
+    <p class="quiet">${logic.ackOn(rec.ack?.tabby) && logic.ackOn(rec.ack?.brandon) ? "You both rested." : "The other person can do this whenever."}</p>`;
 }
 
 function agreeBody(def, rec) {
@@ -495,13 +501,13 @@ function agreeBody(def, rec) {
     const on = logic.ruleOn(rec.accepts?.[profile()]?.[rule.id]);
     return `<button type="button" class="rule" data-action="rule" data-day="${def.id}" data-rule="${rule.id}" aria-pressed="${on ? "true" : "false"}"><span class="mark" aria-hidden="true">${on ? "✓" : ""}</span><span>${esc(rule.text)}</span></button>`;
   }).join("");
-  return `<div class="stack">${rules}</div><p class="quiet">Tap a rule to keep it. Tap again only if you want it off.</p>${bothAnswers(def, rec)}`;
+  return `<div class="stack">${rules}</div><p class="quiet">Tap each rule you can keep.</p>${bothAnswers(def, rec)}`;
 }
 
 function leftCard(def, rec) {
   const items = logic.whatsLeft(def, rec || {}, app.state);
-  if (!items.length) return `<div class="card note"><p class="kicker">What’s left to move on</p><p>Nothing. This step can move on.</p></div>`;
-  return `<div class="card"><p class="kicker">What’s left to move on</p><ul class="left">${items.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></div>`;
+  if (!items.length) return `<div class="card note"><p class="kicker">What’s left</p><p>Nothing else. You can move on.</p></div>`;
+  return `<div class="card"><p class="kicker">What’s left</p><ul class="left">${items.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></div>`;
 }
 
 function sealOffer(def, rec) {
@@ -533,7 +539,7 @@ function exerciseBody(def, rec) {
     ? `<div class="note">${finishedBadge(mine)}<p><strong>Helping.</strong> ${nl(mine.helping)}</p><p><strong>Criticism.</strong> ${nl(mine.criticism)}</p></div>`
     : `${draftBadge()}<label>Your helping version<textarea data-save="ex" data-day="${def.id}" data-field="helping">${esc(mine.helping || "")}</textarea></label>
        <label>Your criticism version<textarea data-save="ex" data-day="${def.id}" data-field="criticism">${esc(mine.criticism || "")}</textarea></label>
-       <button class="primary" type="button" data-action="finish-ex" data-day="${def.id}">Mark finished</button>`;
+       <button class="primary full" type="button" data-action="finish-ex" data-day="${def.id}">I’m finished</button>`;
   let rate = "";
   if (revealed) {
     const other = profile() === "tabby" ? "brandon" : "tabby";
@@ -640,25 +646,37 @@ function viewPath() {
 
 function viewDayRead(id) {
   const def = DAYS.find((d) => d.id === id);
-  if (!def) return `<div class="view"><p>That day is not on the path.</p></div>`;
+  const back = `<button class="text-btn" type="button" data-go="#/path">Back</button>`;
+  if (!def) return `<div class="view">${back}<p>That step is not here.</p></div>`;
   const idx = logic.currentIndex(app.state, DAYS);
+  const rec = app.state.days[def.id] || {};
   if (def.index > idx) {
-    return `<div class="view"><button class="text-btn" type="button" data-go="#/path">Back</button><h1>${esc(def.title)}</h1><p class="lede">This opens when you arrive. Nothing is due before then.</p><p class="quiet">${esc(phaseOf(def.phase)?.blurb || "")}</p></div>`;
+    return `<div class="view" data-day="${def.id}">${back}<h1>${esc(def.title)}</h1><p class="lede">This step is not open yet.</p></div>`;
   }
-  if (def.index === idx) return `<div class="view"><button class="text-btn" type="button" data-go="#/today">This is today’s step</button>${workView(def, app.state.days[id] || {}, logic.turnState(def, app.state.days[id], profile(), app.state))}</div>`;
-  const rec = app.state.days[id] || {};
+  if (!logic.isDayComplete(rec, def, app.state)) {
+    return `<div class="view" data-day="${def.id}">${back}${stepInner(def, rec)}</div>`;
+  }
   const additions = (app.state.phaseSeals?.[def.phase]?.additions || [])
     .map((add) => {
       const owner = add.by || "tabby";
-      if (!add.finished && owner !== profile()) return `<div class="note"><p>${cap(owner)} is adding more. Still a draft.</p></div>`;
+      if (!add.finished && owner !== profile()) return `<div class="note"><p>${cap(owner)} is still writing.</p></div>`;
       if (!add.finished && owner === profile()) {
-        return `<div class="card">${draftBadge()}<p>${nl(add.text || "")}</p><button class="primary" type="button" data-action="finish-add" data-phase="${def.phase}" data-id="${add.id}">Mark finished</button></div>`;
+        return `<div class="card">${draftBadge()}<p>${nl(add.text || "")}</p><button class="primary full" type="button" data-action="finish-add" data-phase="${def.phase}" data-id="${add.id}">I’m finished</button></div>`;
       }
       if (!add.text) return "";
       return `<div class="note">${finishedBadge(add)}<p>${nl(add.text)}</p></div>`;
     })
     .join("");
-  return `<div class="view"><button class="text-btn" type="button" data-go="#/path">Back</button><h1>${esc(def.title)}</h1>${verseCard(def)}<div class="card">${readAnswers(def, rec)}</div>${additions}<button class="ghost" type="button" data-action="add-more" data-phase="${def.phase}">Add more later</button></div>`;
+  return `<div class="view" data-day="${def.id}">${back}<h1>${esc(def.title)}</h1><div class="card">${readAnswers(def, rec)}</div>${additions}${addMoreBox(def.phase)}${leftCard(def, rec)}</div>`;
+}
+
+function addMoreBox(phase) {
+  if (app.addingPhase !== phase) {
+    return `<button class="ghost full" type="button" data-action="add-more" data-phase="${phase}">Add a little more</button>`;
+  }
+  return `<label>Add a little more<textarea id="add-more-text" placeholder="Write it here"></textarea></label>
+    <button class="primary full" type="button" data-action="save-more" data-phase="${phase}">Save this</button>
+    <button class="text-btn" type="button" data-action="cancel-more">Not now</button>`;
 }
 
 function readAnswers(def, rec) {
@@ -696,7 +714,7 @@ function viewAsk() {
       <label>Ask anything<textarea data-save="ask-live" data-id="${esc(draft?.id || "")}" placeholder="What I still need to know is…">${esc(draft?.text || "")}</textarea></label>
       <label class="check"><input data-save="ask-incident" data-id="${esc(draft?.id || "")}" type="checkbox" ${draft?.aboutIncident ? "checked" : ""}> <span>This is about the incident</span></label>
       <p class="quiet small">Autosaved. Brandon cannot see this until you mark it finished.</p>
-      <button class="primary" type="button" data-action="finish-ask" data-id="${esc(draft?.id || "")}">Mark finished</button></div>`
+      <button class="primary" type="button" data-action="finish-ask" data-id="${esc(draft?.id || "")}">I’m finished</button></div>`
     : `<p class="quiet">Questions appear here after Tabby marks them finished. Your reply stays a draft until you do the same.</p>`;
   const rows = list
     .map((q) => {
@@ -727,7 +745,7 @@ function viewThread(id) {
   const canReply = q.finished && q.status !== "closed";
   const box = canReply
     ? `<div class="card">${draftBadge()}<textarea data-save="reply-live" data-id="${q.id}" data-mid="${esc(mineDraft?.id || "")}" placeholder="${profile() === "brandon" ? "The honest answer is…" : "A follow-up, if you want one"}">${esc(mineDraft?.text || "")}</textarea>
-      <button class="primary" type="button" data-action="finish-reply" data-id="${q.id}" data-mid="${esc(mineDraft?.id || "")}">Mark finished</button>
+      <button class="primary" type="button" data-action="finish-reply" data-id="${q.id}" data-mid="${esc(mineDraft?.id || "")}">I’m finished</button>
       ${profile() === "tabby" ? `<button class="ghost" type="button" data-action="close-q" data-id="${q.id}">This feels answered</button>` : ""}</div>`
     : "";
   const title = q.finished || qOwner === profile() ? q.text || "Question" : "Question";
@@ -743,7 +761,7 @@ function viewJournal() {
       <label>Get it all out<textarea data-save="journal-live" data-id="${esc(draft?.id || "")}">${esc(draft?.text || "")}</textarea></label>
       <label class="check"><input data-save="journal-share" data-id="${esc(draft?.id || "")}" type="checkbox" ${draft?.share ? "checked" : ""}> <span>Share with Brandon after I mark this finished</span></label>
       <p class="quiet small">Autosaved. He cannot read a draft, even after the phones sync.</p>
-      <button class="primary" type="button" data-action="finish-journal" data-id="${esc(draft?.id || "")}">Mark finished</button></div>`
+      <button class="primary" type="button" data-action="finish-journal" data-id="${esc(draft?.id || "")}">I’m finished</button></div>`
       : `<p class="quiet">You see an entry only after Tabby marks it finished and chooses to share it. An acknowledgment stays yours until you mark that finished too.</p>`;
   const rows = (app.state.journal || [])
     .filter((e) => !e.removed && e !== draft)
@@ -759,7 +777,7 @@ function viewJournal() {
       const ackVisible = ack && (ack.finished || who === "brandon");
       return `<article class="card">${mine && !e.finished ? draftBadge() : e.finished ? finishedBadge(e) : ""}<p class="small quiet">${e.visibility === "shared" && e.finished ? "Shared" : "Private"}</p><p>${nl(text)}</p>${
         who === "brandon" && e.finished && e.visibility === "shared"
-          ? `${ack?.finished ? "" : draftBadge()}<textarea data-save="journal-ack" data-id="${e.id}">${esc(ack?.text || "")}</textarea><button class="soft" type="button" data-action="finish-ack" data-id="${e.id}">Mark finished</button>`
+          ? `${ack?.finished ? "" : draftBadge()}<textarea data-save="journal-ack" data-id="${e.id}">${esc(ack?.text || "")}</textarea><button class="soft" type="button" data-action="finish-ack" data-id="${e.id}">I’m finished</button>`
           : ackVisible && ack?.text
             ? `<div class="note"><strong>Brandon</strong>${ack.finished ? finishedBadge(ack) : ""}${nl(ack.text)}</div>`
             : ""
@@ -896,11 +914,20 @@ function presenceCard() {
 }
 
 function viewMore() {
+  const items = [
+    ["calendar", "Calendar"],
+    ["album", "Photos"],
+    ["presence", "Be present"],
+    ["timeline", "Our story"],
+    ["projects", "Money and projects"],
+    ["keepsake", "Keepsake"],
+    ["just", "Just Us"],
+    ["about", "About"],
+    ["settings", "Settings"],
+  ];
   return `<div class="view"><h1>More</h1>
-    <button class="list-btn" type="button" data-action="open-sync-key"><strong>Sync key</strong><br><small>Paste a new GitHub token</small></button>
-    ${["calendar","album","presence","timeline","projects","keepsake","just","settings","about","pair"]
-      .map((id) => `<button class="list-btn" type="button" data-go="#/${id}"><strong>${esc(labelFor(id))}</strong></button>`)
-      .join("")}
+    <button class="list-btn" type="button" data-action="open-guide"><strong>How Closer works</strong><br><small>Three short cards</small></button>
+    ${items.map(([id, label]) => `<button class="list-btn" type="button" data-go="#/${id}"><strong>${esc(label)}</strong></button>`).join("")}
   </div>`;
 }
 
@@ -982,7 +1009,7 @@ function viewSettings() {
     (name, i) =>
       `<label class="check"><input type="checkbox" data-action="work-night" data-dow="${i}" ${nights[i] ? "checked" : ""}> <span>${name} night</span></label>`
   ).join("");
-  return `<div class="view"><h1>Settings</h1><p class="quiet">Version ${APP_VERSION}</p>
+  return `<div class="view"><h1>Settings</h1><p class="quiet">Version ${APP_VERSION}. Your words send on their own when you have signal.</p>
     <div class="card" id="sync-key-card"><p class="kicker">Sync key</p>
       <p>Paste a new GitHub token here. Your answers and passphrase stay on this phone.</p>
       <label>Sync key<input id="sync-key" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_…"></label>
@@ -1230,7 +1257,7 @@ function handle(action, btn) {
   if (action === "leave") go("#/presence");
   if (action === "continue") {
     const rest = restDay();
-    app.settings.continueAfterId = rest?.id || "";
+    app.settings.continueAfterId = btn.dataset.day || rest?.id || "";
     app.settings.continueAfterDay = logic.todayISO();
     db.saveSettings(app.settings);
     render();
@@ -1366,7 +1393,22 @@ function handle(action, btn) {
   }
   if (action === "sync") doSync();
   if (action === "copy-link") navigator.clipboard?.writeText(btn.dataset.link || pairLink());
-  if (action === "add-more") addMore(btn.dataset.phase);
+  if (action === "add-more") {
+    app.addingPhase = btn.dataset.phase || "";
+    render();
+  }
+  if (action === "cancel-more") {
+    app.addingPhase = "";
+    render();
+  }
+  if (action === "save-more") saveMore(btn.dataset.phase);
+  if (action === "guide-next") advanceGuide();
+  if (action === "open-guide") {
+    app.showGuide = true;
+    app.guideStep = 0;
+    if ((location.hash || "") !== "#/today") go("#/today");
+    else render();
+  }
   if (action === "finish-add") runFinish(finishAddition(btn.dataset.phase, btn.dataset.id));
   if (action === "filter-set") {
     app.settingFilter = app.settingFilter === btn.dataset.id ? "" : btn.dataset.id;
@@ -1424,7 +1466,7 @@ async function saveAndSync() {
   try {
     await db.saveState(app.state);
   } catch (err) {
-    app.banner = "Could not store this on the phone. Your words are still in the box. Try Mark finished again.";
+    app.banner = "Could not store this on the phone. Your words are still in the box. Try I’m finished again.";
     render();
     return;
   }
@@ -1438,13 +1480,14 @@ async function finishAnswer(day, who) {
   let answer = await revealOwn(rec[who], false);
   const text = logic.textToFinish(answer?.text, boxValue(`textarea[data-save="answer"][data-day="${day}"][data-who="${who}"]`));
   if (!text) {
-    app.banner = "There's nothing to finish yet. Write a few words in the box, then tap Mark finished.";
+    app.banner = "There's nothing to finish yet. Write a few words in the box, then tap I’m finished.";
     render();
     return;
   }
   rec[who] = { text, finished: true, finishedAt: Date.now(), updatedAt: Date.now() };
   maybeComplete(day);
-  app.banner = finishedCopy(who);
+  const def = DAYS.find((d) => d.id === day);
+  app.banner = def && logic.isDayComplete(rec, def, app.state) ? "" : finishedCopy(who);
   await saveAndSync();
 }
 
@@ -1455,7 +1498,7 @@ async function finishPart(day, partId) {
   let answer = await revealOwn(rec.parts[partId].tabby, false);
   const text = logic.textToFinish(answer?.text, boxValue(`textarea[data-save="part"][data-day="${day}"][data-part="${partId}"]`));
   if (!text) {
-    app.banner = "There's nothing to finish yet. Write a few words in the box, then tap Mark finished.";
+    app.banner = "There's nothing to finish yet. Write a few words in the box, then tap I’m finished.";
     render();
     return;
   }
@@ -1473,7 +1516,7 @@ async function finishExercise(day) {
   const helping = logic.textToFinish(side?.helping, boxValue(`textarea[data-save="ex"][data-day="${day}"][data-field="helping"]`));
   const criticism = logic.textToFinish(side?.criticism, boxValue(`textarea[data-save="ex"][data-day="${day}"][data-field="criticism"]`));
   if (!helping || !criticism) {
-    app.banner = "Write both versions, the helping one and the criticism one, then tap Mark finished.";
+    app.banner = "Write both versions, the helping one and the criticism one, then tap I’m finished.";
     render();
     return;
   }
@@ -1494,7 +1537,7 @@ async function finishAddition(phase, id) {
   const opened = await revealOwn(add, true);
   const text = logic.textToFinish(opened?.text, null);
   if (!text) {
-    app.banner = "There's nothing to finish yet. Write a few words, then tap Mark finished.";
+    app.banner = "There's nothing to finish yet. Write a few words, then tap I’m finished.";
     render();
     return;
   }
@@ -1553,14 +1596,14 @@ function ensureReplyDraft(qid, mid) {
 async function finishJournal(id) {
   const entry = (app.state.journal || []).find((item) => item.id === id) || (app.state.journal || []).find((item) => (item.by || "tabby") === profile() && !item.finished);
   if (!entry) {
-    app.banner = "There's nothing to finish yet. Write a few words, then tap Mark finished.";
+    app.banner = "There's nothing to finish yet. Write a few words, then tap I’m finished.";
     render();
     return;
   }
   const opened = await revealOwn(entry, true);
   const text = logic.textToFinish(opened?.text, boxValue('textarea[data-save="journal-live"]'));
   if (!text) {
-    app.banner = "There's nothing to finish yet. Write a few words, then tap Mark finished.";
+    app.banner = "There's nothing to finish yet. Write a few words, then tap I’m finished.";
     render();
     return;
   }
@@ -1590,7 +1633,7 @@ async function finishAck(id) {
   entry.ack = await revealOwn(entry.ack, true);
   const text = logic.textToFinish(entry.ack?.text, boxValue(`textarea[data-save="journal-ack"][data-id="${id}"]`));
   if (!text) {
-    app.banner = "Write the acknowledgment, then tap Mark finished.";
+    app.banner = "Write the acknowledgment, then tap I’m finished.";
     render();
     return;
   }
@@ -1603,14 +1646,14 @@ async function finishAck(id) {
 async function finishAsk(id) {
   const q = (app.state.questions || []).find((item) => item.id === id) || (app.state.questions || []).find((item) => !item.finished && (item.author || "tabby") === "tabby");
   if (!q) {
-    app.banner = "There's nothing to finish yet. Write the question, then tap Mark finished.";
+    app.banner = "There's nothing to finish yet. Write the question, then tap I’m finished.";
     render();
     return;
   }
   const opened = await revealOwn(q, true);
   const text = logic.textToFinish(opened?.text, boxValue('textarea[data-save="ask-live"]'));
   if (!text) {
-    app.banner = "There's nothing to finish yet. Write the question, then tap Mark finished.";
+    app.banner = "There's nothing to finish yet. Write the question, then tap I’m finished.";
     render();
     return;
   }
@@ -1633,7 +1676,7 @@ async function finishReply(qid, mid) {
   msg = await revealOwn(msg, true);
   const text = logic.textToFinish(msg?.text, boxValue(`textarea[data-save="reply-live"][data-id="${qid}"]`));
   if (!text) {
-    app.banner = "There's nothing to finish yet. Write the reply, then tap Mark finished.";
+    app.banner = "There's nothing to finish yet. Write the reply, then tap I’m finished.";
     render();
     return;
   }
@@ -1760,13 +1803,28 @@ function addAffirmation() {
   render();
 }
 
-function addMore(phase) {
-  const text = window.prompt("Add a little more. It stays with this chapter.");
-  if (!text) return;
+function advanceGuide() {
+  const step = app.guideStep || 0;
+  if (step >= 2) {
+    app.settings.seenGuide = true;
+    app.showGuide = false;
+    app.guideStep = 0;
+    db.saveSettings(app.settings);
+    render();
+    return;
+  }
+  app.guideStep = step + 1;
+  render();
+}
+
+function saveMore(phase) {
+  const text = document.getElementById("add-more-text")?.value?.trim();
+  if (!text || !phase) return;
   const seal = app.state.phaseSeals[phase] || { sealedAt: null, additions: [] };
   seal.additions = seal.additions || [];
   seal.additions.push({ id: logic.newId("add"), by: profile(), text, finished: false, at: Date.now(), updatedAt: Date.now() });
   app.state.phaseSeals[phase] = seal;
+  app.addingPhase = "";
   scheduleSave();
   render();
 }
@@ -1846,6 +1904,12 @@ async function performSync(opts = {}) {
     app.settings.lastSyncNote = "On this phone only";
     db.saveSettings(app.settings);
     if (!opts.quiet) render();
+    return;
+  }
+  if (!navigator.onLine) {
+    app.heldOffline = true;
+    app.syncing = false;
+    render();
     return;
   }
   app.syncing = true;
@@ -1933,8 +1997,15 @@ async function performSync(opts = {}) {
     const clock = new Date(app.settings.lastSyncAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     const wrote = result.status === "created" ? "state.json created" : result.status === "synced" ? "state.json updated" : "already up to date";
     app.settings.lastSyncNote = `Synced · ${wrote} · ${clock}`;
+    app.heldOffline = false;
   } catch (err) {
-    app.settings.lastSyncNote = sync.explainSyncError(err);
+    if (!navigator.onLine || err?.name === "TypeError") {
+      app.heldOffline = true;
+      if (syncIsError(app.settings.lastSyncNote)) app.settings.lastSyncNote = "";
+    } else {
+      app.heldOffline = false;
+      app.settings.lastSyncNote = sync.explainSyncError(err);
+    }
   }
   app.syncing = false;
   db.saveSettings(app.settings);
@@ -2029,6 +2100,15 @@ window.addEventListener("focus", () => {
 });
 window.addEventListener("pageshow", () => {
   if (app.settings.token) doSync({ quiet: true });
+});
+window.addEventListener("online", () => {
+  app.heldOffline = false;
+  if (app.settings.token && app.settings.passphrase) doSync({ quiet: true });
+  else render();
+});
+window.addEventListener("offline", () => {
+  app.heldOffline = true;
+  render();
 });
 
 function applyUpdate() {

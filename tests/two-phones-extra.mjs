@@ -49,12 +49,19 @@ async function phone(profile) {
   const key = await generateJournalKey();
   const context = await browser.newContext({ ...iPhone, serviceWorkers: "block" });
   await context.route("https://api.github.com/**", handle);
-  await context.addInitScript((saved) => localStorage.setItem("closer.settings", JSON.stringify(saved)), {
+  await context.addInitScript((saved) => {
+    if (!localStorage.getItem("closer.settings")) localStorage.setItem("closer.settings", JSON.stringify(saved));
+  }, {
     profile, token, passphrase, setupDone: true, authorKey: key, journalKey: key,
   });
   const page = await context.newPage();
   await page.goto("http://127.0.0.1:8778/#/today", { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#app h1");
+  for (let i = 0; i < 3; i++) {
+    const next = page.locator("[data-action='guide-next']");
+    if (!(await next.count())) break;
+    await next.click();
+  }
   return { page, context };
 }
 async function press(locator) {
@@ -64,7 +71,7 @@ async function press(locator) {
 }
 
 async function sync(page) {
-  await press(page.locator("[data-action='sync']"));
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
   await page.waitForFunction(() => {
     const text = document.querySelector("[data-sync-note]")?.textContent || "";
     return !document.querySelector("[data-sync-note]") || text.startsWith("Synced") || text.startsWith("401");

@@ -74,12 +74,19 @@ function settings(profile, key) {
 async function phone(profile, key) {
   const context = await browser.newContext({ ...iPhone, serviceWorkers: "block" });
   await context.route("https://api.github.com/**", handle);
-  await context.addInitScript((saved) => localStorage.setItem("closer.settings", JSON.stringify(saved)), settings(profile, key));
+  await context.addInitScript((saved) => {
+    if (!localStorage.getItem("closer.settings")) localStorage.setItem("closer.settings", JSON.stringify(saved));
+  }, settings(profile, key));
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (err) => errors.push(String(err)));
   await page.goto("http://127.0.0.1:8777/", { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#app h1");
+  for (let i = 0; i < 3; i++) {
+    const next = page.locator("[data-action='guide-next']");
+    if (!(await next.count())) break;
+    await next.click();
+  }
   return { context, page, errors, profile };
 }
 
@@ -96,15 +103,12 @@ async function press(locator) {
 async function sync(person) {
   const seal = person.page.locator(".sheet [data-action='seal']");
   if (await seal.count()) await press(seal);
-  const button = person.page.locator("[data-action='sync']").first();
-  if (await button.count()) await press(button);
+  await person.page.evaluate(() => window.dispatchEvent(new Event("online")));
   const started = Date.now();
   let stable = 0;
   let last = "";
   while (Date.now() - started < 25000) {
-    last = (await person.page.locator("[data-sync-note]").count())
-      ? await person.page.locator("[data-sync-note]").first().innerText()
-      : "";
+    last = await person.page.locator("[data-sync-note]").first().evaluate((el) => el.textContent || "").catch(() => "");
     if (last.startsWith("Synced")) return;
     if (!last) {
       stable += 1;
@@ -200,7 +204,7 @@ try {
   if ((await rules.first().getAttribute("aria-pressed")) !== "false") bugs.push("A second tap on the mark checked it twice");
   await rules.first().locator("span").last().tap();
   putDelay = 1200;
-  const syncing = press(tabby.page.locator("[data-action='sync']"));
+  const syncing = tabby.page.evaluate(() => window.dispatchEvent(new Event("online")));
   await tabby.page.waitForTimeout(200);
   const total = await rules.count();
   for (let i = 1; i < total; i++) {
@@ -257,7 +261,7 @@ try {
   await press(tabby.page.locator("[data-action='open-just']"));
   await press(tabby.page.locator("[data-action='ynm']"));
   await tabby.page.goto("http://127.0.0.1:8777/#/settings");
-  await tabby.page.getByText("Version 7").waitFor({ timeout: 10000 });
+  await tabby.page.getByText("Version 8").waitFor({ timeout: 10000 });
   await tabby.page.locator("#sync-key").fill("  Bearer github_pat_replacedkey123456 ");
   await press(tabby.page.locator("[data-action='save-sync-key']"));
   await tabby.page.waitForFunction(() => (document.querySelector("[data-sync-note]")?.textContent || "").startsWith("Synced"), null, { timeout: 20000 });
