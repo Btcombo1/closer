@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { chromium } from "playwright-core";
+import { webkit, devices } from "playwright-core";
 import { generateJournalKey } from "../js/crypto.js";
 
 const root = new URL("..", import.meta.url).pathname;
@@ -52,7 +52,8 @@ async function handle(route) {
   return route.fulfill({ status: 404, json: { message: "Not Found" } });
 }
 
-const browser = await chromium.launch({ executablePath: "/usr/local/bin/google-chrome", headless: true });
+const browser = await webkit.launch({ headless: true });
+const iPhone = devices["iPhone 13"];
 const tabbyKey = await generateJournalKey();
 const brandonKey = await generateJournalKey();
 const passphrase = "shared-secret-passphrase";
@@ -71,7 +72,7 @@ function settings(profile, key) {
 }
 
 async function phone(profile, key) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const context = await browser.newContext({ ...iPhone, serviceWorkers: "block" });
   await context.route("https://api.github.com/**", handle);
   await context.addInitScript((saved) => localStorage.setItem("closer.settings", JSON.stringify(saved)), settings(profile, key));
   const page = await context.newPage();
@@ -82,52 +83,63 @@ async function phone(profile, key) {
   return { context, page, errors, profile };
 }
 
+async function press(locator) {
+  const el = locator.first();
+  await el.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  try {
+    await el.tap({ timeout: 4000 });
+  } catch {
+    await el.evaluate((node) => node.click());
+  }
+}
+
 async function sync(person) {
   const seal = person.page.locator(".sheet [data-action='seal']");
-  if (await seal.count()) await seal.first().click();
+  if (await seal.count()) await press(seal);
   const button = person.page.locator("[data-action='sync']").first();
-  if (await button.count()) await button.click();
-  try {
-    await person.page.waitForFunction(() => {
-      const note = document.querySelector("[data-sync-note]");
-      const text = note ? note.textContent : "";
-      const body = document.body.innerText;
-      return !note || text.startsWith("Synced") || /^(401|403|404|422)/.test(text) || text.includes("Could not") || text.includes("reach GitHub");
-    }, null, { timeout: 20000 });
-  } catch (err) {
-    const note = await person.page.locator("[data-sync-note]").allInnerTexts().catch(() => []);
-    const h1 = await person.page.locator("#app h1").innerText().catch(() => "");
-    throw new Error(`${person.profile} sync timeout. notes=${JSON.stringify(note)} h1=${h1} ${err.message}`);
+  if (await button.count()) await press(button);
+  const started = Date.now();
+  let stable = 0;
+  let last = "";
+  while (Date.now() - started < 25000) {
+    last = (await person.page.locator("[data-sync-note]").count())
+      ? await person.page.locator("[data-sync-note]").first().innerText()
+      : "";
+    if (last.startsWith("Synced")) return;
+    if (!last) {
+      stable += 1;
+      if (stable >= 2) return;
+    } else if (/^(401|403|404|422)/.test(last) || last.includes("Could not") || last.includes("reach GitHub")) {
+      throw new Error(`${person.profile} sync failed: ${last}`);
+    } else stable = 0;
+    await person.page.waitForTimeout(150);
   }
-  const note = (await person.page.locator("[data-sync-note]").count())
-    ? await person.page.locator("[data-sync-note]").first().innerText()
-    : "Synced";
-  if (!note.startsWith("Synced")) throw new Error(`${person.profile} sync failed: ${note}`);
+  throw new Error(`${person.profile} sync timeout. note=${last}`);
 }
 
 async function act(person) {
   const page = person.page;
   const sheet = page.locator(".sheet [data-action='seal']");
   if (await sheet.count()) {
-    await sheet.first().click();
+    await press(sheet);
     return "seal";
   }
   if (await page.locator("[data-action='continue']").count()) {
-    await page.locator("[data-action='continue']").click();
+    await press(page.locator("[data-action='continue']"));
     return "continue";
   }
-  const boxes = page.locator("label.check input[type=checkbox]");
+  const boxes = page.locator("button.rule");
   const count = await boxes.count();
   for (let i = 0; i < count; i++) {
-    if (!(await boxes.nth(i).isChecked())) {
-      await boxes.nth(i).click();
+    if ((await boxes.nth(i).getAttribute("aria-pressed")) !== "true") {
+      await boxes.nth(i).locator("span").last().tap();
       return "check";
     }
   }
   for (const field of ["helping", "criticism"]) {
     const choice = page.locator(`[data-action='rate'][data-field='${field}'][data-value='supported']`);
     if (await choice.count() && !(await choice.first().innerText()).includes("✓")) {
-      await choice.first().click();
+      await press(choice);
       return "rate";
     }
   }
@@ -135,8 +147,8 @@ async function act(person) {
     const draft = page.locator("#aff-draft");
     if (!(await draft.inputValue()).trim()) {
       await draft.fill("You are steady and kind, and this family is loved because of you.");
-      await page.locator("[data-action='add-aff']").click();
-      await page.locator("[data-action='ready-aff']").click();
+      await press(page.locator("[data-action='add-aff']"));
+      await press(page.locator("[data-action='ready-aff']"));
       return "affirm";
     }
   }
@@ -151,21 +163,21 @@ async function act(person) {
   }
   const finish = page.locator("[data-action='finish'], [data-action='finish-part'], [data-action='finish-ex']");
   if (await finish.count()) {
-    await finish.first().click();
+    await press(finish);
     await page.waitForTimeout(80);
     return "finish";
   }
   if (await page.locator("[data-action='ack']").count()) {
-    await page.locator("[data-action='ack']").first().click();
+    await press(page.locator("[data-action='ack']"));
     return "ack";
   }
   if (await page.locator("[data-action='close-chapter']").count()) {
-    await page.locator("[data-action='close-chapter']").first().click();
+    await press(page.locator("[data-action='close-chapter']"));
     return "close";
   }
   const offer = page.locator("[data-action='seal']");
   if (await offer.count()) {
-    await offer.first().click();
+    await press(offer);
     return "seal";
   }
   if ((await page.locator("#app").innerText()).includes("You kept the whole path")) return "done";
@@ -180,25 +192,32 @@ try {
   await sync(tabby);
   await sync(brandon);
 
+  const rules = tabby.page.locator("button.rule");
+  await rules.first().locator("span").last().tap();
+  if ((await rules.first().getAttribute("aria-pressed")) !== "true") bugs.push("Tapping the rule text did not check it");
+  await tabby.page.waitForTimeout(550);
+  await rules.first().locator(".mark").tap();
+  if ((await rules.first().getAttribute("aria-pressed")) !== "false") bugs.push("A second tap on the mark checked it twice");
+  await rules.first().locator("span").last().tap();
   putDelay = 1200;
-  const first = tabby.page.locator("label.check input").first();
-  await first.click();
-  const syncing = tabby.page.locator("[data-action='sync']").first().click();
+  const syncing = press(tabby.page.locator("[data-action='sync']"));
   await tabby.page.waitForTimeout(200);
-  const boxes = tabby.page.locator("label.check input");
-  const total = await boxes.count();
+  const total = await rules.count();
   for (let i = 1; i < total; i++) {
-    if (!(await boxes.nth(i).isChecked())) await boxes.nth(i).click();
+    if ((await rules.nth(i).getAttribute("aria-pressed")) !== "true") await rules.nth(i).locator("span").last().tap();
   }
   await syncing;
   await tabby.page.waitForFunction(() => (document.querySelector("[data-sync-note]")?.textContent || "").startsWith("Synced"), null, { timeout: 20000 });
   await tabby.page.waitForTimeout(400);
-  const still = await tabby.page.locator("label.check input").evaluateAll((els) => els.map((el) => el.checked));
-  if (still.some((on) => !on)) bugs.push(`Checkbox race unchecked rules: ${JSON.stringify(still)}`);
-  else console.log("race ok", still.length, "rules stayed checked");
+  const still = await tabby.page.locator("button.rule").evaluateAll((els) => els.map((el) => el.getAttribute("aria-pressed") === "true"));
+  if (still.some((on) => !on)) bugs.push(`Rule toggles came back off: ${JSON.stringify(still)}`);
+  else console.log("race ok", still.length, "rules stayed on");
+  const left = await tabby.page.locator("ul.left").innerText();
+  if (!left.includes("Brandon: rule 1 not checked")) bugs.push(`What's left missed Brandon: ${left}`);
+  if (!/Tabby: words not marked finished/.test(left)) bugs.push(`What's left missed Tabby's words: ${left}`);
   putDelay = 20;
 
-  await tabby.page.locator("[data-go='#/journal']").click().catch(async () => {
+  await press(tabby.page.locator("[data-go='#/journal']")).catch(async () => {
     await tabby.page.goto("http://127.0.0.1:8777/#/journal");
   });
   await tabby.page.waitForSelector("textarea[data-save='journal-live']");
@@ -209,7 +228,7 @@ try {
   const brandonJournal = await brandon.page.locator("#app").innerText();
   if (brandonJournal.includes("must not see yet")) bugs.push("Brandon saw Tabby's unfinished journal");
   await tabby.page.locator("input[data-save='journal-share']").check();
-  await tabby.page.locator("[data-action='finish-journal']").click();
+  await press(tabby.page.locator("[data-action='finish-journal']"));
   await tabby.page.waitForFunction(() => document.body.innerText.includes("Finished"));
   await sync(tabby);
   await sync(brandon);
@@ -221,7 +240,7 @@ try {
 
   await tabby.page.goto("http://127.0.0.1:8777/#/ask");
   await tabby.page.locator("textarea[data-save='ask-live']").fill("What do you remember from that week?");
-  await tabby.page.locator("[data-action='finish-ask']").click();
+  await press(tabby.page.locator("[data-action='finish-ask']"));
   await sync(tabby);
   await brandon.page.goto("http://127.0.0.1:8777/#/ask");
   await sync(brandon);
@@ -235,11 +254,12 @@ try {
   await tabby.page.goto("http://127.0.0.1:8777/#/presence");
   if (!(await tabby.page.locator("#app").innerText()).includes("Be present")) bugs.push("Presence missing");
   await tabby.page.goto("http://127.0.0.1:8777/#/just");
-  await tabby.page.locator("[data-action='open-just']").click();
-  await tabby.page.locator("[data-action='ynm']").first().click();
+  await press(tabby.page.locator("[data-action='open-just']"));
+  await press(tabby.page.locator("[data-action='ynm']"));
   await tabby.page.goto("http://127.0.0.1:8777/#/settings");
+  await tabby.page.getByText("Version 7").waitFor({ timeout: 10000 });
   await tabby.page.locator("#sync-key").fill("  Bearer github_pat_replacedkey123456 ");
-  await tabby.page.locator("[data-action='save-sync-key']").click();
+  await press(tabby.page.locator("[data-action='save-sync-key']"));
   await tabby.page.waitForFunction(() => (document.querySelector("[data-sync-note]")?.textContent || "").startsWith("Synced"), null, { timeout: 20000 });
   const kept = await tabby.page.evaluate(() => JSON.parse(localStorage.getItem("closer.settings")).passphrase);
   if (kept !== passphrase) bugs.push("Sync key change cleared the passphrase");

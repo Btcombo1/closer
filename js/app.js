@@ -7,6 +7,8 @@ import { allIdeas, ideaById, LENGTHS, SETTINGS, WHEN_LABEL, LEADER_NOTE } from "
 import { allIdeas as justIdeas, INTRO as JUST_INTRO, PROMPTS as JUST_PROMPTS, LIST as JUST_LIST } from "./justus.js";
 import { INTRO as BE_INTRO, challengeFor, reconnectFor } from "./presence.js";
 
+const APP_VERSION = "7";
+
 const app = {
   settings: db.loadSettings(),
   state: logic.normalizeState(null),
@@ -66,11 +68,13 @@ function dayRec(id) {
 
 function scheduleSave() {
   clearTimeout(app.saveTimer);
+  const editAt = Date.now();
   app.saveTimer = setTimeout(async () => {
     app.state.updatedAt = Date.now();
     await db.saveState(app.state);
+    if (app.syncing || (app.settings.lastSyncAt || 0) >= editAt) return;
     const note = document.querySelector("[data-sync-note]");
-    if (note && !app.syncing) note.textContent = navigator.onLine ? "Saved on this phone" : "Offline · saved on this phone";
+    if (note) note.textContent = navigator.onLine ? "Saved on this phone" : "Offline · saved on this phone";
   }, 400);
   clearTimeout(app.syncTimer);
   app.syncTimer = setTimeout(() => {
@@ -116,9 +120,14 @@ function openSyncKey() {
   else go("#/settings");
 }
 
+function updateBanner() {
+  if (!app.updateReady) return "";
+  return `<div class="banner"><strong>Version ${APP_VERSION} is ready.</strong><p>Tap update so both of you are on the same app.</p><button class="primary" type="button" data-action="update-now">Update now</button></div>`;
+}
+
 function shell(inner) {
-  if (app.route === "today" && restDay()) return inner;
-  return `${topbar()}${inner}${nav()}${app.sheet || ""}${app.calming ? calmingOverlay() : ""}`;
+  if (app.route === "today" && restDay()) return `${updateBanner()}${inner}`;
+  return `${updateBanner()}${topbar()}${inner}${nav()}${app.sheet || ""}${app.calming ? calmingOverlay() : ""}`;
 }
 
 function syncLabel() {
@@ -325,6 +334,7 @@ function waitingView(def, turn) {
     : `You’ve done your part for now. You can put the phone down. ${otherName()} will answer when they open Closer.`;
   return `<div class="view">
     ${partnerCard(def, app.state.days[def.id] || {})}
+    ${leftCard(def, app.state.days[def.id] || {})}
     ${progress()}
     <p class="pill wait">${esc(turn.label)}</p>
     <h1>${esc(def.title)}</h1>
@@ -348,6 +358,7 @@ function workView(def, rec, turn) {
   const week = weekOf(def);
   return `<div class="view">
     ${partnerCard(def, rec)}
+    ${leftCard(def, rec)}
     ${progress()}
     <p class="kicker">Week ${def.week} · ${esc(week?.theme || "")}</p>
     ${def.core ? `<p class="heart">The heart of this path</p>` : ""}
@@ -482,9 +493,15 @@ function breakBody(def, rec) {
 function agreeBody(def, rec) {
   const rules = GROUND_RULES.map((rule) => {
     const on = logic.ruleOn(rec.accepts?.[profile()]?.[rule.id]);
-    return `<label class="check" data-action="rule" data-day="${def.id}" data-rule="${rule.id}"><input type="checkbox" data-rule="${rule.id}" ${on ? "checked" : ""}> <span>${esc(rule.text)}</span></label>`;
+    return `<button type="button" class="rule" data-action="rule" data-day="${def.id}" data-rule="${rule.id}" aria-pressed="${on ? "true" : "false"}"><span class="mark" aria-hidden="true">${on ? "✓" : ""}</span><span>${esc(rule.text)}</span></button>`;
   }).join("");
-  return `<div class="stack">${rules}</div><p class="quiet">Add anything you need, or write that these are enough. A check stays checked.</p>${bothAnswers(def, rec)}`;
+  return `<div class="stack">${rules}</div><p class="quiet">Tap a rule to keep it. Tap again only if you want it off.</p>${bothAnswers(def, rec)}`;
+}
+
+function leftCard(def, rec) {
+  const items = logic.whatsLeft(def, rec || {}, app.state);
+  if (!items.length) return `<div class="card note"><p class="kicker">What’s left to move on</p><p>Nothing. This step can move on.</p></div>`;
+  return `<div class="card"><p class="kicker">What’s left to move on</p><ul class="left">${items.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></div>`;
 }
 
 function sealOffer(def, rec) {
@@ -965,7 +982,7 @@ function viewSettings() {
     (name, i) =>
       `<label class="check"><input type="checkbox" data-action="work-night" data-dow="${i}" ${nights[i] ? "checked" : ""}> <span>${name} night</span></label>`
   ).join("");
-  return `<div class="view"><h1>Settings</h1>
+  return `<div class="view"><h1>Settings</h1><p class="quiet">Version ${APP_VERSION}</p>
     <div class="card" id="sync-key-card"><p class="kicker">Sync key</p>
       <p>Paste a new GitHub token here. Your answers and passphrase stay on this phone.</p>
       <label>Sync key<input id="sync-key" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_…"></label>
@@ -993,7 +1010,7 @@ function viewSettings() {
 }
 
 function viewAbout() {
-  return `<div class="view"><h1>About Closer</h1>
+  return `<div class="view"><h1>About Closer</h1><p class="quiet">Version ${APP_VERSION}</p>
     <p class="lede">A private workbook for Tabby and Brandon Turner. The center is one incident from about ten years ago, told in her words, heard without a defense, and closed only if she is ready.</p>
     <div class="card"><p>This is a companion to a licensed marriage counselor, not a replacement. If things get heated, pause and come back.</p></div>
     <p>You have been together since April 2018 and married since November 21, 2020. The app keeps a permanent record so you never start from zero.</p>
@@ -1180,15 +1197,19 @@ function handle(action, btn) {
     render();
   }
   if (action === "rule") {
-    const input = btn.matches?.("input") ? btn : btn.querySelector("input[type=checkbox]");
-    const on = input ? input.checked : true;
+    const key = `${day}:${btn.dataset.rule}`;
+    const now = Date.now();
+    if (app.ruleTap?.key === key && now - app.ruleTap.at < 500) return;
+    app.ruleTap = { key, at: now };
     const rec = dayRec(day);
     rec.accepts = rec.accepts || {};
     rec.accepts[profile()] = rec.accepts[profile()] || {};
-    rec.accepts[profile()][btn.dataset.rule] = { on, updatedAt: Date.now() };
+    const on = !logic.ruleOn(rec.accepts[profile()][btn.dataset.rule]);
+    rec.accepts[profile()][btn.dataset.rule] = { on, updatedAt: now };
     markEdit();
     maybeComplete(day);
     scheduleSave();
+    render();
   }
   if (action === "finish-ex") runFinish(finishExercise(day));
   if (action === "rate") {
@@ -1336,6 +1357,7 @@ function handle(action, btn) {
   if (action === "save-sync-key") saveSyncKey();
   if (action === "save-passphrase") savePassphrase();
   if (action === "open-sync-key") openSyncKey();
+  if (action === "update-now") applyUpdate();
   if (action === "clear-secrets") {
     app.settings.token = "";
     app.settings.passphrase = "";
@@ -2009,8 +2031,35 @@ window.addEventListener("pageshow", () => {
   if (app.settings.token) doSync({ quiet: true });
 });
 
+function applyUpdate() {
+  const reg = app.swReg;
+  const waiting = reg?.waiting;
+  if (waiting) waiting.postMessage({ type: "SKIP_WAITING" });
+  else location.reload();
+}
+
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js").catch(() => {});
+  if (navigator.serviceWorker.controller) {
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (app.reloading) return;
+      app.reloading = true;
+      location.reload();
+    });
+  }
+  navigator.serviceWorker.register("./sw.js").then((reg) => {
+    app.swReg = reg;
+    const flag = () => {
+      if (reg.waiting && navigator.serviceWorker.controller) {
+        app.updateReady = true;
+        render();
+      }
+    };
+    flag();
+    reg.addEventListener("updatefound", () => {
+      const worker = reg.installing;
+      worker?.addEventListener("statechange", flag);
+    });
+  }).catch(() => {});
 }
 
 async function boot() {

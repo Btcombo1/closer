@@ -103,12 +103,21 @@ export function saveState(state) {
   return set("kv", "state", state);
 }
 
-export function savePhoto(id, record) {
-  return set("photos", id, record);
+export async function savePhoto(id, record) {
+  const stored = { ...record };
+  if (typeof Blob !== "undefined" && stored.plain instanceof Blob) {
+    stored.plainType = stored.plain.type || "image/jpeg";
+    stored.plain = await stored.plain.arrayBuffer();
+  }
+  return set("photos", id, stored);
 }
 
-export function loadPhoto(id) {
-  return get("photos", id);
+export async function loadPhoto(id) {
+  const rec = await get("photos", id);
+  if (rec?.plain instanceof ArrayBuffer) {
+    rec.plain = new Blob([rec.plain], { type: rec.plainType || "image/jpeg" });
+  }
+  return rec;
 }
 
 export function deletePhoto(id) {

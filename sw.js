@@ -1,4 +1,4 @@
-const CACHE = "closer-v6";
+const CACHE = "closer-v7";
 const ASSETS = [
   "./",
   "./index.html",
@@ -25,6 +25,10 @@ const ASSETS = [
   "./fonts/outfit-500.woff2",
   "./fonts/outfit-600.woff2",
 ];
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+});
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting()));

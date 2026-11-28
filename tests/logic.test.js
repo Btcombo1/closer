@@ -361,6 +361,12 @@ test("a newer local rule tap is not erased by an older sync", () => {
   );
   assert.equal(raced.days.w1d1.accepts.tabby.pause.on, true);
   assert.equal(raced.days.w1d1.accepts.tabby.finish.on, true);
+  const kept = mergeState(
+    { days: { w1d1: { accepts: { tabby: { finish: { on: true, updatedAt: 5000 }, pause: { on: false, updatedAt: 5000 } } } } } },
+    { days: { w1d1: { accepts: { tabby: { finish: false, pause: true } } } } }
+  );
+  assert.equal(kept.days.w1d1.accepts.tabby.finish.on, true);
+  assert.equal(kept.days.w1d1.accepts.tabby.pause.on, false);
 });
 
 test("token cleanup and GitHub errors are specific", () => {

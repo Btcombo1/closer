@@ -200,13 +200,72 @@ function unionById(listA = [], listB = [], mergeItem) {
 
 function normRule(value) {
   if (value == null) return null;
-  if (typeof value === "boolean") return { on: value, updatedAt: value ? 1 : 0 };
+  if (typeof value === "boolean") {
+    if (!value) return null;
+    return { on: true, updatedAt: 1 };
+  }
   if (typeof value === "object") return { on: !!value.on, updatedAt: value.updatedAt || 0 };
   return null;
 }
 
 export function ruleOn(value) {
   return !!normRule(value)?.on;
+}
+
+export function whatsLeft(def, record, state = {}) {
+  if (!def) return [];
+  const rec = record || {};
+  if (rec.paused) return ["This step is paused. Come back when it feels kinder."];
+  const items = [];
+  const needWords = (who) => {
+    const name = who === "tabby" ? "Tabby" : "Brandon";
+    if (!textDone(rec[who])) items.push(`${name}: words not marked finished`);
+  };
+  if (def.kind === "break") {
+    if (!ackOn(rec.ack?.tabby)) items.push("Tabby: rest not taken");
+    if (!ackOn(rec.ack?.brandon)) items.push("Brandon: rest not taken");
+    return items;
+  }
+  if (def.kind === "agreements") {
+    (def.ruleIds || []).forEach((id, index) => {
+      if (!ruleOn(rec.accepts?.tabby?.[id])) items.push(`Tabby: rule ${index + 1} not checked`);
+      if (!ruleOn(rec.accepts?.brandon?.[id])) items.push(`Brandon: rule ${index + 1} not checked`);
+    });
+    needWords("tabby");
+    needWords("brandon");
+    return items;
+  }
+  if (def.kind === "exercise") {
+    if (!rec.exercise?.tabby?.finished) items.push("Tabby: versions not marked finished");
+    if (!rec.exercise?.brandon?.finished) items.push("Brandon: versions not marked finished");
+    const tabbyRated = rec.exercise?.ratings?.tabby;
+    const brandonRated = rec.exercise?.ratings?.brandon;
+    if (!tabbyRated?.helping || !tabbyRated?.criticism) items.push("Tabby: both wordings not rated");
+    if (!brandonRated?.helping || !brandonRated?.criticism) items.push("Brandon: both wordings not rated");
+  } else if (def.kind === "ritual") {
+    if (!String(state.closure?.said || "").trim() || !String(state.closure?.released || "").trim()) items.push("Tabby: closing words not written");
+    if (!String(state.closure?.brandonHeard || "").trim()) items.push("Brandon: what you heard is not written");
+  } else if (def.kind === "close") {
+    if (!state.closure?.tabbyClosed) items.push("Tabby: chapter not closed");
+    if (!state.closure?.brandonClosed) items.push("Brandon: chapter not closed");
+  } else if (def.kind === "affirmations") {
+    if (!(state.affirmations || []).some((item) => item.ready && String(item.text || "").trim() && !item.removed)) {
+      items.push("Brandon: an affirmation is not marked ready");
+    }
+    needWords("tabby");
+  } else if (def.parts?.length) {
+    def.parts.forEach((part, index) => {
+      if (!textDone(rec.parts?.[part.id]?.tabby)) items.push(`Tabby: part ${index + 1} not marked finished`);
+    });
+    needWords("brandon");
+  } else {
+    needWords("tabby");
+    needWords("brandon");
+  }
+  if (def.sealsPhase && def.kind !== "close" && !state.phaseSeals?.[def.sealsPhase]?.sealedAt) {
+    items.push("Tabby: “I’ve said everything” is not tapped yet");
+  }
+  return items;
 }
 
 function mergeRulePerson(a = {}, b = {}) {

@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { chromium } from "playwright-core";
+import { webkit, devices } from "playwright-core";
 import { generateJournalKey } from "../js/crypto.js";
 
 const root = new URL("..", import.meta.url).pathname;
@@ -40,13 +40,14 @@ async function handle(route) {
   }
   return route.fulfill({ status: 404, json: { message: "Not Found" } });
 }
-const browser = await chromium.launch({ executablePath: "/usr/local/bin/google-chrome", headless: true });
+const browser = await webkit.launch({ headless: true });
+const iPhone = devices["iPhone 13"];
 const passphrase = "shared-secret-passphrase";
 const token = "github_pat_extra0123456789";
 const bugs = [];
 async function phone(profile) {
   const key = await generateJournalKey();
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const context = await browser.newContext({ ...iPhone, serviceWorkers: "block" });
   await context.route("https://api.github.com/**", handle);
   await context.addInitScript((saved) => localStorage.setItem("closer.settings", JSON.stringify(saved)), {
     profile, token, passphrase, setupDone: true, authorKey: key, journalKey: key,
@@ -56,8 +57,14 @@ async function phone(profile) {
   await page.waitForSelector("#app h1");
   return { page, context };
 }
+async function press(locator) {
+  const el = locator.first();
+  await el.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  try { await el.tap({ timeout: 4000 }); } catch { await el.evaluate((node) => node.click()); }
+}
+
 async function sync(page) {
-  await page.locator("[data-action='sync']").first().click();
+  await press(page.locator("[data-action='sync']"));
   await page.waitForFunction(() => {
     const text = document.querySelector("[data-sync-note]")?.textContent || "";
     return !document.querySelector("[data-sync-note]") || text.startsWith("Synced") || text.startsWith("401");
@@ -67,9 +74,9 @@ try {
   const tabby = await phone("tabby");
   const brandon = await phone("brandon");
   await sync(tabby.page);
-  for (const box of await tabby.page.locator("label.check input").all()) await box.click();
+  for (const box of await tabby.page.locator("button.rule").all()) await box.tap();
   await tabby.page.locator("textarea[data-save='answer']").fill("Tabby accepts these rules with care.");
-  await tabby.page.locator("[data-action='finish']").click();
+  await press(tabby.page.locator("[data-action='finish']"));
   await tabby.page.waitForFunction(() => document.body.innerText.includes("Finished"));
   await sync(tabby.page);
   await sync(brandon.page);
@@ -84,12 +91,12 @@ try {
   await tabby.page.goto("http://127.0.0.1:8778/#/journal");
   await tabby.page.locator("textarea[data-save='journal-live']").fill("Please hear this.");
   await tabby.page.locator("input[data-save='journal-share']").check();
-  await tabby.page.locator("[data-action='finish-journal']").click();
+  await press(tabby.page.locator("[data-action='finish-journal']"));
   await sync(tabby.page);
   await brandon.page.goto("http://127.0.0.1:8778/#/journal");
   await sync(brandon.page);
   await brandon.page.locator("textarea[data-save='journal-ack']").fill("I hear you.");
-  await brandon.page.locator("[data-action='finish-ack']").click();
+  await press(brandon.page.locator("[data-action='finish-ack']"));
   await sync(brandon.page);
   await tabby.page.goto("http://127.0.0.1:8778/#/journal");
   await sync(tabby.page);
@@ -100,7 +107,7 @@ try {
   tabby.page.once("dialog", (dialog) => dialog.accept("A small photo"));
   const [chooser] = await Promise.all([
     tabby.page.waitForEvent("filechooser"),
-    tabby.page.locator("[data-action='add-photo']").click(),
+    press(tabby.page.locator("[data-action='add-photo']")),
   ]);
   await chooser.setFiles({ name: "tiny.png", mimeType: "image/png", buffer: png });
   await tabby.page.waitForFunction(() => document.body.innerText.includes("A small photo"));
