@@ -1,0 +1,10 @@
+{
+  "name": "closer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/logic.test.js",
+    "qa": "node tests/qa-full.mjs samsung && node tests/qa-full.mjs pixel",
+    "predeploy": "npm test && npm run qa"
+  }
+}
