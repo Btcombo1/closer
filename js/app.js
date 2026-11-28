@@ -7,7 +7,7 @@ import { allIdeas, ideaById, LENGTHS, SETTINGS, WHEN_LABEL, LEADER_NOTE } from "
 import { allIdeas as justIdeas, INTRO as JUST_INTRO, PROMPTS as JUST_PROMPTS, LIST as JUST_LIST } from "./justus.js";
 import { INTRO as BE_INTRO, challengeFor, reconnectFor } from "./presence.js";
 
-const APP_VERSION = "10";
+const APP_VERSION = "11";
 
 const app = {
   settings: db.loadSettings(),
@@ -118,6 +118,8 @@ async function render() {
     window.scrollTo(0, 0);
   }
   document.getElementById("splash")?.classList.add("hide");
+  fixNativeFields();
+  if (app.composer) document.querySelector(".composer-actions")?.scrollIntoView({ block: "nearest" });
   if (app.focusSyncKey) {
     const field = document.getElementById("sync-key") || document.getElementById("setup-token");
     if (field) {
@@ -146,7 +148,8 @@ function teachingNow() {
 
 function shell(inner) {
   if (teachingNow()) return `${updateBanner()}${inner}`;
-  return `${updateBanner()}${offlineLine()}${errorBanner()}${topbar()}${inner}${nav()}${app.sheet || ""}${app.calming ? calmingOverlay() : ""}`;
+  const tabs = app.composer ? "" : nav();
+  return `${updateBanner()}${offlineLine()}${errorBanner()}${topbar()}${inner}${tabs}${app.sheet || ""}${app.calming ? calmingOverlay() : ""}`;
 }
 
 function syncLabel() {
@@ -882,8 +885,11 @@ function eventForm() {
     <label>Date<input id="event-date" type="date" value="${esc(iso)}"></label>
     <label>Time, if you want<input id="event-time" type="time"></label>
     <label>Note, if you want<textarea id="event-note"></textarea></label>
-    <button class="primary full" type="button" data-action="save-event">Save</button>
-    <button class="text-btn" type="button" data-action="cancel-composer">Not now</button>
+    <p id="form-error" class="form-error" role="alert"></p>
+    <div class="composer-actions">
+      <button class="primary full" type="button" data-action="save-event">Save</button>
+      <button class="text-btn" type="button" data-action="cancel-composer">Not now</button>
+    </div>
   </div>`;
 }
 
@@ -901,8 +907,11 @@ function shiftForm() {
     <label>Ends<input id="shift-end" type="time" value="${esc(draft.end || "")}"></label>
     <label>From<input id="shift-from" type="date" value="${esc(draft.from || logic.DAY_SHIFT_FROM)}"></label>
     <label>Until, if it ends<input id="shift-until" type="date" value="${esc(draft.until || "")}"></label>
-    <button class="primary full" type="button" data-action="save-shift">Save work days</button>
-    <button class="text-btn" type="button" data-action="cancel-composer">Not now</button>
+    <p id="form-error" class="form-error" role="alert"></p>
+    <div class="composer-actions">
+      <button class="primary full" type="button" data-action="save-shift">Save work days</button>
+      <button class="text-btn" type="button" data-action="cancel-composer">Not now</button>
+    </div>
   </div>`;
 }
 
@@ -996,8 +1005,11 @@ function goalForm() {
   return `<div class="card">
     <label>Title<input id="goal-title" type="text" autocomplete="off"></label>
     <label>Note, if you want<textarea id="goal-note"></textarea></label>
-    <button class="primary full" type="button" data-action="save-goal">Save</button>
-    <button class="text-btn" type="button" data-action="cancel-composer">Not now</button>
+    <p id="form-error" class="form-error" role="alert"></p>
+    <div class="composer-actions">
+      <button class="primary full" type="button" data-action="save-goal">Save</button>
+      <button class="text-btn" type="button" data-action="cancel-composer">Not now</button>
+    </div>
   </div>`;
 }
 
@@ -1020,7 +1032,7 @@ function goalCard(goal) {
   }
   const showSuggest = !agreed && (passed || !proposal?.iso || mine);
   const counter = app.composer === "counter" && app.composerFor === goal.id
-    ? `<label>Date<input id="goal-date" type="date" value="${esc(proposal?.iso || logic.todayISO())}"></label><button class="primary" type="button" data-action="save-proposal" data-id="${goal.id}">Suggest this date</button>`
+    ? `<label>Date<input id="goal-date" type="date" value="${esc(proposal?.iso || logic.todayISO())}"></label><p id="form-error" class="form-error" role="alert"></p><div class="composer-actions"><button class="primary" type="button" data-action="save-proposal" data-id="${goal.id}">Suggest this date</button></div>`
     : showSuggest ? `<button class="text-btn" type="button" data-action="open-counter" data-id="${goal.id}">Suggest a date</button>` : "";
   return `<article class="card"><h2>${esc(goal.title)}</h2>${goal.note ? `<p>${esc(goal.note)}</p>` : ""}<p class="quiet">Added by ${esc(who)}</p>${ask}${counter}
     <button class="ghost" type="button" data-action="done-goal" data-id="${goal.id}">Mark done</button></article>`;
@@ -1136,7 +1148,7 @@ function viewSettings() {
     </div>
     <div class="card"><p class="kicker">Work nights before December 4</p><p class="quiet">These old weekend nights apply only before December 4. After that, add the real days and hours on the Calendar. Nothing is assumed.</p>${toggles}
       <label>What to call the shift<input id="shift-label" type="text" value="${esc(app.state.schedule.shiftLabel || "")}"></label>
-      <button class="soft" type="button" data-action="save-shift">Save schedule</button></div>
+      <button class="soft" type="button" data-action="save-shift-label">Save schedule</button></div>
     <div class="card"><p class="kicker">Passphrase</p>
       <label>Shared passphrase<input id="pass" type="password" autocomplete="off" value="${esc(app.settings.passphrase || "")}"></label>
       <p class="quiet small">Leave this unless you are changing the sentence you share. It does not change when you paste a new sync key.</p>
@@ -1182,6 +1194,16 @@ function calmingOverlay() {
   return `<div class="sheet"><div class="panel"><p class="kicker">${esc(c.title)}</p><div class="breath-wrap"><div class="breath ${kind === "478" ? "b478" : ""}"></div></div><p>${esc(c.read)}</p><button class="primary full" type="button" data-action="close-calm">I’m ready</button></div></div>`;
 }
 
+const SAVE_ACTIONS = new Set(["save-event", "save-shift", "save-goal", "save-proposal"]);
+
+function runAction(action, btn) {
+  try {
+    handle(action, btn);
+  } catch (err) {
+    showTrouble();
+  }
+}
+
 function onClick(event) {
   const btn = event.target.closest("[data-go],[data-profile],[data-action]");
   if (!btn) return;
@@ -1194,7 +1216,11 @@ function onClick(event) {
     return;
   }
   const action = btn.dataset.action;
-  if (action) handle(action, btn);
+  if (action && SAVE_ACTIONS.has(action) && app.swallowClick === btn) {
+    app.swallowClick = null;
+    return;
+  }
+  if (action) runAction(action, btn);
 }
 
 function onInput(event) {
@@ -1522,7 +1548,7 @@ function handle(action, btn) {
     markEdit();
     scheduleSave();
   }
-  if (action === "save-shift") {
+  if (action === "save-shift-label") {
     app.state.schedule.shiftLabel = document.getElementById("shift-label")?.value || app.state.schedule.shiftLabel;
     app.state.schedule.updatedAt = Date.now();
     scheduleSave();
@@ -1905,17 +1931,78 @@ function shiftMonth(dir) {
   render();
 }
 
+function fieldValue(id) {
+  const el = document.getElementById(id);
+  return el ? String(el.value || "") : "";
+}
+
+function readIso(id, fallback) {
+  const el = document.getElementById(id);
+  const candidates = [el?.value, el?.getAttribute("value"), fallback];
+  for (const raw of candidates) {
+    const text = String(raw || "").trim().replace(/\./g, "-");
+    const iso = text.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+    const us = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (us) return `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+  }
+  return "";
+}
+
+function readClock(id) {
+  const text = fieldValue(id).trim();
+  if (!text || text.includes("-")) return "";
+  const match = text.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return "";
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return "";
+  return `${String(hour).padStart(2, "0")}:${match[2]}`;
+}
+
+function showFormError(message) {
+  let box = document.getElementById("form-error");
+  if (!box) {
+    box = document.createElement("p");
+    box.id = "form-error";
+    box.className = "form-error";
+    box.setAttribute("role", "alert");
+    const anchor = document.querySelector(".composer-actions");
+    anchor?.parentElement?.insertBefore(box, anchor);
+  }
+  box.textContent = message;
+}
+
+function showTrouble() {
+  if (document.getElementById("trouble")) return;
+  const bar = document.createElement("button");
+  bar.id = "trouble";
+  bar.type = "button";
+  bar.className = "trouble";
+  bar.textContent = "Something went wrong. Tap to try again.";
+  bar.addEventListener("click", () => location.reload());
+  document.body.append(bar);
+}
+
+function fixNativeFields() {
+  for (const el of document.querySelectorAll("input[type=date], input[type=time]")) {
+    const attr = el.getAttribute("value");
+    if (attr && !el.value) el.value = attr;
+  }
+}
+
 function saveEvent() {
-  const title = document.getElementById("event-title")?.value.trim();
-  const iso = document.getElementById("event-date")?.value;
-  if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return;
+  const title = fieldValue("event-title").trim();
+  const iso = readIso("event-date", app.composerDate || logic.todayISO());
+  if (!title) return showFormError("Add a title.");
+  if (!iso) return showFormError("Add a date.");
   app.state.events = app.state.events || [];
   app.state.events.push({
     id: logic.newId("e"),
     title,
     iso,
-    time: document.getElementById("event-time")?.value || "",
-    note: document.getElementById("event-note")?.value.trim() || "",
+    time: readClock("event-time"),
+    note: fieldValue("event-note").trim(),
     by: profile(),
     updatedAt: Date.now(),
   });
@@ -1930,10 +2017,10 @@ function readShiftDraft() {
   const end = document.getElementById("shift-end");
   const from = document.getElementById("shift-from");
   const until = document.getElementById("shift-until");
-  if (start) draft.start = start.value;
-  if (end) draft.end = end.value;
-  if (from) draft.from = from.value;
-  if (until) draft.until = until.value;
+  if (start) draft.start = readClock("shift-start");
+  if (end) draft.end = readClock("shift-end");
+  if (from) draft.from = readIso("shift-from", draft.from || logic.DAY_SHIFT_FROM);
+  if (until) draft.until = readIso("shift-until", "");
   app.shiftDraft = draft;
   return draft;
 }
@@ -1949,7 +2036,9 @@ function toggleShiftDay(dow) {
 
 function saveShift() {
   const draft = readShiftDraft();
-  if (!(draft.weekdays || []).length || !draft.start || !draft.end || !draft.from) return;
+  if (!(draft.weekdays || []).length) return showFormError("Pick the days he works.");
+  if (!draft.start || !draft.end) return showFormError("Add the start and end times.");
+  if (!draft.from) return showFormError("Add the date this schedule starts.");
   const shifts = app.state.schedule.shifts || [];
   const now = Date.now();
   if (draft.id) {
@@ -1991,13 +2080,13 @@ function endShift(id) {
 }
 
 function saveGoal() {
-  const title = document.getElementById("goal-title")?.value.trim();
-  if (!title) return;
+  const title = fieldValue("goal-title").trim();
+  if (!title) return showFormError("Add a title.");
   app.state.goals = app.state.goals || [];
   app.state.goals.push({
     id: logic.newId("goal"),
     title,
-    note: document.getElementById("goal-note")?.value.trim() || "",
+    note: fieldValue("goal-note").trim(),
     by: profile(),
     at: Date.now(),
     updatedAt: Date.now(),
@@ -2013,8 +2102,8 @@ function saveGoal() {
 
 function proposeGoal(id) {
   const goal = (app.state.goals || []).find((g) => g.id === id);
-  const iso = document.getElementById("goal-date")?.value;
-  if (!goal || !/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return;
+  const iso = readIso("goal-date", "");
+  if (!goal || !iso) return showFormError("Add a date.");
   const now = Date.now();
   goal.proposal = { iso, by: profile(), at: now };
   goal.agreed = goal.agreed || {};
@@ -2384,6 +2473,14 @@ function schedulePoll() {
   }, hidden ? 60000 : 30000);
 }
 
+document.body.addEventListener("pointerdown", (event) => {
+  const btn = event.target.closest("button[data-action]");
+  if (!btn || !SAVE_ACTIONS.has(btn.dataset.action)) return;
+  event.preventDefault();
+  app.swallowClick = btn;
+  runAction(btn.dataset.action, btn);
+}, true);
+
 document.body.addEventListener("click", (event) => {
   if (event.target.closest("[data-action='close-sheet']")) {
     app.sheet = null;
@@ -2413,6 +2510,13 @@ window.addEventListener("online", () => {
 window.addEventListener("offline", () => {
   app.heldOffline = true;
   render();
+});
+window.addEventListener("error", () => showTrouble());
+window.addEventListener("unhandledrejection", () => showTrouble());
+document.body.addEventListener("focusin", (event) => {
+  const el = event.target;
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
+  setTimeout(() => el.scrollIntoView({ block: "center" }), 280);
 });
 
 function applyUpdate() {

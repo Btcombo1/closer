@@ -77,6 +77,13 @@ img { max-width: 100%; }
 .sync-error { background: var(--rose-soft); color: #6f3640; border-radius: 14px; padding: 12px 14px; line-height: 1.45; }
 .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
 .offline-line { margin: 0 0 8px; color: var(--muted); font-size: 0.9rem; }
+.form-error:empty { display: none; }
+.form-error { color: #8a3f4b; background: var(--rose-soft); border-radius: 12px; padding: 10px 12px; margin: 8px 0; }
+.composer-actions { position: sticky; bottom: 12px; z-index: 6; background: var(--paper); padding-top: 8px; }
+.trouble {
+  position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 40;
+  background: var(--ink); color: #fffaf6; border: 0; border-radius: 14px; padding: 14px 16px; font-weight: 600;
+}
 .banner { background: var(--rose-soft); border-radius: 16px; padding: 12px 14px; margin: 8px 0 12px; }
 .banner p { margin: 4px 0 0; }
 .nav button { position: relative; }
